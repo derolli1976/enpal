@@ -15,7 +15,7 @@ Dieses Projekt stellt eine benutzerdefinierte [Home Assistant](https://www.home-
 
 1. Füge dieses Repository in Home Assistant HACS als benutzerdefiniertes Repository hinzu:
    - Typ: **Integration**
-   - URL: `https://github.com/derolli1976/enpal_webparser`
+   - URL: `https://github.com/derolli1976/enpal`
 2. Suche nach „Enpal Webparser“ in HACS und installiere es
 3. Nach dem Neustart von Home Assistant:
    - Gehe zu **Einstellungen → Geräte & Dienste → Integration hinzufügen**
@@ -49,7 +49,7 @@ Die folgenden Optionen stehen zur Verfügung:
 
 Pull Requests sind willkommen!  
 Bitte melde Bugs oder Ideen unter:  
-👉 [Issue Tracker](https://github.com/derolli1976/enpal_webparser/issues)
+👉 [Issue Tracker](https://github.com/derolli1976/enpal/issues)
 
 ---
 
