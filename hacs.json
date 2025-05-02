@@ -1,0 +1,10 @@
+{
+  "name": "Enpal Webparser",
+  "content_in_root": false,
+  "domain": "enpal_webparser",
+  "homeassistant": "2023.0.0",
+  "render_readme": true,
+  "country": "DE",
+  "integration_type": "integration",
+  "iot_class": "local_polling"
+}

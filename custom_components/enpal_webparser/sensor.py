@@ -1,0 +1,1 @@
+# sensor.py – bitte hier die Sensorlogik einfügen
