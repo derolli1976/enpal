@@ -1,16 +1,18 @@
 from datetime import timedelta
-import voluptuous as vol
 import re
-import requests
+import logging
+import aiohttp
 from bs4 import BeautifulSoup
 
+from homeassistant.core import HomeAssistant
 from homeassistant.components.sensor import SensorEntity
-from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.typing import HomeAssistantType
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
-from .const import DOMAIN, DEFAULT_INTERVAL
+from .const import DOMAIN, DEFAULT_INTERVAL, DEFAULT_URL
+
+_LOGGER = logging.getLogger(__name__)
 
 def friendly_name(group: str, sensor: str) -> str:
     group_lower = group.lower()
@@ -57,20 +59,28 @@ def get_class_and_unit(value: str):
             return unit, device_class
     return None, None
 
-async def async_setup_entry(hass: HomeAssistantType, entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
+    _LOGGER.info("[Enpal] sensor.py async_setup_entry gestartet")
+
     url = entry.data.get("url", DEFAULT_URL)
     interval = entry.data.get("interval", DEFAULT_INTERVAL)
     groups = entry.data.get("groups", [])
 
     async def async_update_data():
         try:
-            resp = requests.get(url, timeout=10)
-            soup = BeautifulSoup(resp.text, 'html.parser')
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, timeout=10) as resp:
+                    html = await resp.text()
+
+            soup = BeautifulSoup(html, 'html.parser')
             cards = soup.find_all("div", class_="card")
 
             sensors = []
             for card in cards:
                 group = card.find("h2").text.strip()
+                if group not in groups:
+                    continue
+
                 rows = card.find_all("tr")[1:]
                 for row in rows:
                     cols = row.find_all("td")
@@ -87,6 +97,17 @@ async def async_setup_entry(hass: HomeAssistantType, entry: ConfigEntry, async_a
                             except ValueError:
                                 pass
 
+                        if device_class and unit is None:
+                            default_units = {
+                                "power": "W",
+                                "energy": "kWh",
+                                "voltage": "V",
+                                "current": "A",
+                                "temperature": "°C",
+                                "frequency": "Hz",
+                            }
+                            unit = default_units.get(device_class)
+
                         sensors.append({
                             "name": friendly_name(group, raw_name),
                             "value": value_clean,
@@ -94,12 +115,15 @@ async def async_setup_entry(hass: HomeAssistantType, entry: ConfigEntry, async_a
                             "device_class": device_class,
                             "enabled": group in groups
                         })
+            _LOGGER.info(f"[Enpal] {len(sensors)} Sensor(en) geladen")
             return sensors
         except Exception as e:
+            _LOGGER.error(f"[Enpal] Fehler beim Abruf: {e}")
             raise UpdateFailed(f"Fehler beim Abrufen: {e}")
 
     coordinator = DataUpdateCoordinator(
         hass,
+        logger=_LOGGER,
         name="Enpal Webparser",
         update_method=async_update_data,
         update_interval=timedelta(seconds=interval),
@@ -110,6 +134,7 @@ async def async_setup_entry(hass: HomeAssistantType, entry: ConfigEntry, async_a
     entities = []
     for sensor in coordinator.data:
         uid = make_id(sensor["name"])
+        _LOGGER.debug(f"[Enpal] Sensor hinzugefügt: {sensor['name']}")
         entities.append(EnpalSensor(uid, sensor, coordinator))
 
     async_add_entities(entities)
@@ -118,12 +143,25 @@ class EnpalSensor(SensorEntity):
     def __init__(self, uid: str, sensor: dict, coordinator: DataUpdateCoordinator):
         self._attr_name = sensor["name"]
         self._attr_unique_id = uid
-        self._attr_native_value = sensor["value"]
-        self._attr_unit_of_measurement = sensor["unit"]
+        try:
+            self._attr_native_value = float(sensor["value"])
+        except ValueError:
+            self._attr_native_value = sensor["value"]
+        self._attr_native_unit_of_measurement = sensor["unit"]
         self._attr_device_class = sensor["device_class"]
         self._attr_should_poll = False
         self._attr_enabled_default = sensor["enabled"]
         self._coordinator = coordinator
+
+    @property
+    def device_info(self):
+        return {
+            "identifiers": {(DOMAIN, "enpal_device")},
+            "name": "Enpal Webgerät",
+            "manufacturer": "Enpal",
+            "model": "Webparser",
+            "entry_type": "service",
+        }
 
     async def async_update(self):
         await self._coordinator.async_request_refresh()
@@ -134,6 +172,9 @@ class EnpalSensor(SensorEntity):
     def _handle_coordinator_update(self):
         for sensor in self._coordinator.data:
             if make_id(sensor["name"]) == self._attr_unique_id:
-                self._attr_native_value = sensor["value"]
+                try:
+                    self._attr_native_value = float(sensor["value"])
+                except ValueError:
+                    self._attr_native_value = sensor["value"]
                 break
         self.async_write_ha_state()
