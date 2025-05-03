@@ -16,10 +16,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data[DOMAIN][entry.entry_id] = entry.data
 
     await hass.config_entries.async_forward_entry_setup(entry, "sensor")
-    return True
-
     _LOGGER.info("[Enpal] Sensor-Plattform wird weitergeleitet")
     return True
+
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _LOGGER.info("[Enpal] async_unload_entry aufgerufen")
