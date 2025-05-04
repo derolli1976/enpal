@@ -1,4 +1,8 @@
-# Enpal Solar
+<p align="center">
+  <img src="https://raw.githubusercontent.com/derolli1976/enpal/main/custom_components/brands/enpal_webparser/logo.png" alt="Enpal Solar Logo" width="250"/>
+</p>
+
+# Enpal Solar – Home Assistant Integration
 
 Diese Home Assistant Integration liest Daten von der lokalen Enpal-Webseite der Solaranlage (z. B. `http://192.168.178.178/deviceMessages`) aus und stellt die Werte als Sensoren in Home Assistant zur Verfügung.  
 Getestet mit der Version 2 der Enpal Box und Solar Rel. 8.45.3-322763 (08.04.2025).
