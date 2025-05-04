@@ -1,4 +1,4 @@
-# Enpal Webparser
+# Enpal Solar
 
 Diese Home Assistant Integration liest Daten von der lokalen Enpal-Webseite der Solaranlage (z. B. `http://192.168.178.178/deviceMessages`) aus und stellt die Werte als Sensoren in Home Assistant zur Verfügung.  
 Getestet mit der Version 2 der Enpal Box und Solar Rel. 8.45.3-322763 (08.04.2025).
@@ -33,7 +33,7 @@ Die Integration kann über die Benutzeroberfläche von Home Assistant konfigurie
 
 1. Kopiere den Ordner `custom_components/enpal_webparser/` in dein Home Assistant `custom_components` Verzeichnis.
 2. Starte Home Assistant neu.
-3. Gehe zu **Einstellungen → Geräte & Dienste → Integration hinzufügen** und wähle **Enpal Webparser**.
+3. Gehe zu **Einstellungen → Geräte & Dienste → Integration hinzufügen** und wähle **Enpal Solar**.
 4. Gib die URL, das Intervall und gewünschte Gruppen an.
 
 ### 🧩 Variante 2: HACS (Custom Repository)
