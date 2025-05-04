@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/derolli1976/enpal/main/custom_components/brands/enpal_webparser/logo.png" alt="Enpal Solar Logo" width="250"/>
+  <img src="https://raw.githubusercontent.com/derolli1976/enpal/main/brands/enpal_webparser/logo.png" alt="Enpal Solar Logo" width="250"/>
 </p>
 
 # Enpal Solar – Home Assistant Integration
