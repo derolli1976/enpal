@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import timedelta, datetime
 import re
 import logging
 import aiohttp
@@ -62,9 +62,9 @@ def get_class_and_unit(value: str):
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
     _LOGGER.info("[Enpal] sensor.py async_setup_entry gestartet")
 
-    url = entry.data.get("url", DEFAULT_URL)
-    interval = entry.data.get("interval", DEFAULT_INTERVAL)
-    groups = entry.data.get("groups", [])
+    url = entry.options.get("url", DEFAULT_URL)
+    interval = entry.options.get("interval", DEFAULT_INTERVAL)
+    groups = entry.options.get("groups", [])
 
     async def async_update_data():
         try:
@@ -90,6 +90,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                         value_clean = get_numeric_value(value_raw)
                         unit, device_class = get_class_and_unit(value_raw)
 
+                        timestamp_str = cols[2].text.strip() if len(cols) > 2 else None
+                        timestamp_iso = None
+                        if timestamp_str:
+                            try:
+                                dt = datetime.strptime(timestamp_str, "%m/%d/%Y %H:%M:%S")
+                                timestamp_iso = dt.isoformat()
+                            except ValueError:
+                                timestamp_iso = timestamp_str
+
                         if unit == "Wh":
                             try:
                                 value_clean = str(round(float(value_clean) / 1000, 3))
@@ -113,7 +122,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                             "value": value_clean,
                             "unit": unit,
                             "device_class": device_class,
-                            "enabled": group in groups
+                            "enabled": group in groups,
+                            "enpal_last_update": timestamp_iso
                         })
             _LOGGER.info(f"[Enpal] {len(sensors)} Sensor(en) geladen")
             return sensors
@@ -151,6 +161,9 @@ class EnpalSensor(SensorEntity):
         self._attr_device_class = sensor["device_class"]
         self._attr_should_poll = False
         self._attr_enabled_default = sensor["enabled"]
+        self._attr_extra_state_attributes = {
+            "enpal_last_update": sensor.get("enpal_last_update")
+        }
         self._coordinator = coordinator
 
     @property
@@ -176,5 +189,6 @@ class EnpalSensor(SensorEntity):
                     self._attr_native_value = float(sensor["value"])
                 except ValueError:
                     self._attr_native_value = sensor["value"]
+                self._attr_extra_state_attributes["enpal_last_update"] = sensor.get("enpal_last_update")
                 break
         self.async_write_ha_state()

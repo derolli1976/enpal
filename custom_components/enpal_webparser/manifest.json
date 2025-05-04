@@ -8,7 +8,5 @@
   "codeowners": ["@yourgithubusername"],
   "requirements": [],
   "iot_class": "local_polling",
-  "config_flow": true,
-  "logo": "logo.png",
-  "icon": "icon.png"
+  "config_flow": true
 }
