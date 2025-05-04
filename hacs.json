@@ -3,7 +3,7 @@
   "domain": "enpal_webparser",
   "homeassistant": "2023.0.0",
   "render_readme": true,
-  "content_in_root": false,
   "integration_type": "integration",
-  "iot_class": "local_polling"
+  "iot_class": "local_polling",
+  "zip_release": false
 }
