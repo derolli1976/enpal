@@ -1,0 +1,24 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "data": {
+          "url": "URL / IP address of your Enpal box",
+          "interval": "Polling interval (in seconds)",
+          "groups": "Select sensor groups"
+        }
+      },
+      "init": {
+        "data": {
+          "url": "URL / IP address of your Enpal box",
+          "interval": "Polling interval (in seconds)",
+          "groups": "Select sensor groups"
+        }
+      }
+    },
+    "error": {
+      "invalid_format": "Invalid URL – must start with http:// and contain a valid IP or hostname.",
+      "unreachable": "The URL could not be reached – please check connection and address."
+    }
+  }
+}
