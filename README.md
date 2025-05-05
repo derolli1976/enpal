@@ -57,6 +57,13 @@ Die Integration kann über die Benutzeroberfläche von Home Assistant konfigurie
 
 ---
 
+## ❓ FAQ & Hilfe
+
+Antworten auf häufige Fragen findest du hier:  
+📘 [FAQ – Häufige Fragen zur Enpal Solar Integration](https://github.com/derolli1976/enpal/wiki/FAQ)
+
+---
+
 ## 🐛 Probleme & Feedback
 
 Bitte eröffne ein GitHub-Issue unter:  
