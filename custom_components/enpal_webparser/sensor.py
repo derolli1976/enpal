@@ -147,7 +147,52 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         _LOGGER.debug(f"[Enpal] Sensor hinzugefügt: {sensor['name']}")
         entities.append(EnpalSensor(uid, sensor, coordinator))
 
+    if entry.options.get("use_wallbox_addon", False):
+        entities.extend([
+            WallboxModeSensor("Wallbox Lademodus", "wallbox_mode", "Wallbox Lademodus", "http://127.0.0.1:8090/wallbox/status", "mode"),
+            WallboxStatusSensor("Wallbox Status", "wallbox_status", "Wallbox Status", "http://127.0.0.1:8090/wallbox/status", "status"),
+        ])
+
     async_add_entities(entities)
+
+
+class WallboxSensorBase(SensorEntity):
+    def __init__(self, name, unique_id, friendly_name, status_url, key):
+        self._attr_name = friendly_name
+        self._attr_unique_id = unique_id
+        self._status_url = status_url
+        self._key = key
+        self._attr_icon = "mdi:ev-station"
+        self._attr_device_class = None
+        self._attr_native_unit_of_measurement = None
+        self._attr_should_poll = True
+        self._attr_extra_state_attributes = {}
+
+    @property
+    def device_info(self):
+        return {
+            "identifiers": {(DOMAIN, "enpal_device")},
+            "name": "Enpal Webgerät",
+            "manufacturer": "Enpal",
+            "model": "Webparser",
+        }
+
+    async def async_update(self):
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(self._status_url, timeout=5) as resp:
+                    data = await resp.json()
+                    self._attr_native_value = data.get(self._key)
+        except Exception as e:
+            _LOGGER.warning(f"[WallboxSensor] Fehler beim Abrufen: {e}")
+            self._attr_native_value = None
+
+
+class WallboxModeSensor(WallboxSensorBase):
+    pass
+
+class WallboxStatusSensor(WallboxSensorBase):
+    pass
 
 class EnpalSensor(SensorEntity):
     def __init__(self, uid: str, sensor: dict, coordinator: DataUpdateCoordinator):
@@ -173,7 +218,6 @@ class EnpalSensor(SensorEntity):
             "name": "Enpal Webgerät",
             "manufacturer": "Enpal",
             "model": "Webparser",
-            "entry_type": "service",
         }
 
     async def async_update(self):

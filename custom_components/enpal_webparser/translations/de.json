@@ -5,14 +5,16 @@
         "data": {
           "url": "URL / IP-Adresse der Enpal Box",
           "interval": "Abfrageintervall (in Sekunden)",
-          "groups": "Sensorgruppen auswählen"
+          "groups": "Sensorgruppen auswählen",
+          "use_wallbox_addon": "Wallbox Add-on verwenden (EXPERIMENTELL!)"
         }
       },
       "init": {
         "data": {
           "url": "URL / IP-Adresse der Enpal Box",
           "interval": "Abfrageintervall (in Sekunden)",
-          "groups": "Sensorgruppen auswählen"
+          "groups": "Sensorgruppen auswählen",
+          "use_wallbox_addon": "Wallbox Add-on verwenden (EXPERIMENTELL!)"
         }
       }
     },
