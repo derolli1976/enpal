@@ -1,5 +1,6 @@
 import logging
-import requests
+import aiohttp
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.components.button import ButtonEntity
 from homeassistant.helpers.entity import EntityCategory
 from .const import DOMAIN
@@ -19,18 +20,19 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     if not options.get("use_wallbox_addon", False):
         return
 
-    base_url = "http://localhost:8090/wallbox"
+    base_url = "http://localhost:36725/wallbox"
     buttons = [
-        EnpalWallboxButton("Start Charging", f"{base_url}/start", "start"),
-        EnpalWallboxButton("Stop Charging", f"{base_url}/stop", "stop"),
+        EnpalWallboxButton(hass, "Start Charging", f"{base_url}/start", "start"),
+        EnpalWallboxButton(hass, "Stop Charging", f"{base_url}/stop", "stop"),
     ]
     for key, label in MODES.items():
-        buttons.append(EnpalWallboxButton(f"Set {label}", f"{base_url}/set_{key}", f"set_{key}"))
+        buttons.append(EnpalWallboxButton(hass, f"Set {label}", f"{base_url}/set_{key}", f"set_{key}"))
 
     async_add_entities(buttons)
 
 class EnpalWallboxButton(ButtonEntity):
-    def __init__(self, name, url, unique_id):
+    def __init__(self, hass, name, url, unique_id):
+        self.hass = hass
         self._attr_name = f"Wallbox {name}"
         self._url = url
         self._attr_unique_id = f"enpal_wallbox_button_{unique_id}"
@@ -47,8 +49,13 @@ class EnpalWallboxButton(ButtonEntity):
 
     async def async_press(self):
         try:
-            response = requests.post(self._url, timeout=5)
-            if not response.ok:
-                _LOGGER.warning("Wallbox command failed: %s", response.text)
+            session = async_get_clientsession(self.hass)
+            async with session.post(self._url, timeout=5) as response:
+                if response.status != 200:
+                    _LOGGER.warning("Wallbox command failed: %s", await response.text())
         except Exception as e:
             _LOGGER.error("Wallbox request failed: %s", e)
+        # Sensor-Update anstoßen
+        coordinator = self.hass.data[DOMAIN].get("coordinator")
+        if coordinator:
+            await coordinator.async_request_refresh()

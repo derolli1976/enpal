@@ -19,6 +19,7 @@ def is_valid_enpal_url_format(url: str) -> bool:
 def validate_enpal_url(url: str) -> bool:
     try:
         resp = requests.get(url, timeout=5)
+        _LOGGER.info("[Enpal] Url-Status: %s", resp.status_code)
         return resp.status_code == 200
     except Exception as e:
         _LOGGER.warning(f"[Enpal] URL nicht erreichbar: {e}")
@@ -98,7 +99,7 @@ class EnpalOptionsFlowHandler(config_entries.OptionsFlow):
         url_input = current.get("url", DEFAULT_URL)
         interval_input = current.get("interval", DEFAULT_INTERVAL)
         groups_input = current.get("groups", DEFAULT_GROUPS)
-        use_wallbox_addon = current.get("use_wallbox_addon", False)
+        use_wallbox_addon = current.get("use_wallbox_addon", DEFAULT_USE_WALLBOX_ADDON)
 
         if user_input:
             url_input = user_input.get("url", url_input)
@@ -123,7 +124,7 @@ class EnpalOptionsFlowHandler(config_entries.OptionsFlow):
                 vol.Required("url", default=url_input): str,
                 vol.Required("interval", default=interval_input): int,
                 vol.Optional("groups", default=groups_input): cv.multi_select(DEFAULT_GROUPS),
-                vol.Optional("use_wallbox_addon", default=False): bool,
+                vol.Optional("use_wallbox_addon", default=use_wallbox_addon): bool,
             }),
             errors=errors
         )

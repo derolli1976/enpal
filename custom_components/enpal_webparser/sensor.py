@@ -8,7 +8,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, CoordinatorEntity, UpdateFailed
+from homeassistant.helpers.entity import EntityCategory
 
 from .const import DOMAIN, DEFAULT_INTERVAL, DEFAULT_URL
 
@@ -139,6 +140,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         update_interval=timedelta(seconds=interval),
     )
 
+    hass.data[DOMAIN]["coordinator"] = coordinator
+
     await coordinator.async_config_entry_first_refresh()
 
     entities = []
@@ -147,52 +150,41 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         _LOGGER.debug(f"[Enpal] Sensor hinzugefügt: {sensor['name']}")
         entities.append(EnpalSensor(uid, sensor, coordinator))
 
+    
+    wallbox_url = "http://127.0.0.1:36725/wallbox/status"
+    
+    async def async_wallbox_update():
+        wallbox_url = "http://127.0.0.1:36725/wallbox/status"
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(wallbox_url, timeout=5) as resp:
+                    if resp.status != 200:
+                        raise UpdateFailed(f"Wallbox API Error: {resp.status}")
+                    return await resp.json()
+        except Exception as e:
+            _LOGGER.error(f"[Enpal] Fehler beim Wallbox-Statusabruf: {e}")
+            raise UpdateFailed(f"Wallbox-Update fehlgeschlagen: {e}")
+
+    wallbox_coordinator = DataUpdateCoordinator(
+        hass,
+        logger=_LOGGER,
+        name="Wallbox Status",
+        update_method=async_wallbox_update,
+        update_interval=timedelta(seconds=30),
+    )
+    try:
+        await wallbox_coordinator.async_config_entry_first_refresh()
+    except Exception as e:
+        raise ConfigEntryNotReady(f"Wallbox-Daten konnten nicht geladen werden: {e}")
+
     if entry.options.get("use_wallbox_addon", False):
         entities.extend([
-            WallboxModeSensor("Wallbox Lademodus", "wallbox_mode", "Wallbox Lademodus", "http://127.0.0.1:8090/wallbox/status", "mode"),
-            WallboxStatusSensor("Wallbox Status", "wallbox_status", "Wallbox Status", "http://127.0.0.1:8090/wallbox/status", "status"),
+        WallboxModeSensor(wallbox_coordinator),
+        WallboxStatusSensor(wallbox_coordinator),
         ])
 
     async_add_entities(entities)
 
-
-class WallboxSensorBase(SensorEntity):
-    def __init__(self, name, unique_id, friendly_name, status_url, key):
-        self._attr_name = friendly_name
-        self._attr_unique_id = unique_id
-        self._status_url = status_url
-        self._key = key
-        self._attr_icon = "mdi:ev-station"
-        self._attr_device_class = None
-        self._attr_native_unit_of_measurement = None
-        self._attr_should_poll = True
-        self._attr_extra_state_attributes = {}
-
-    @property
-    def device_info(self):
-        return {
-            "identifiers": {(DOMAIN, "enpal_device")},
-            "name": "Enpal Webgerät",
-            "manufacturer": "Enpal",
-            "model": "Webparser",
-        }
-
-    async def async_update(self):
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(self._status_url, timeout=5) as resp:
-                    data = await resp.json()
-                    self._attr_native_value = data.get(self._key)
-        except Exception as e:
-            _LOGGER.warning(f"[WallboxSensor] Fehler beim Abrufen: {e}")
-            self._attr_native_value = None
-
-
-class WallboxModeSensor(WallboxSensorBase):
-    pass
-
-class WallboxStatusSensor(WallboxSensorBase):
-    pass
 
 class EnpalSensor(SensorEntity):
     def __init__(self, uid: str, sensor: dict, coordinator: DataUpdateCoordinator):
@@ -236,3 +228,34 @@ class EnpalSensor(SensorEntity):
                 self._attr_extra_state_attributes["enpal_last_update"] = sensor.get("enpal_last_update")
                 break
         self.async_write_ha_state()
+
+
+class WallboxCoordinatorEntity(CoordinatorEntity, SensorEntity):
+    def __init__(self, coordinator, name, unique_id, key):
+        super().__init__(coordinator)
+        self._attr_name = name
+        self._attr_unique_id = unique_id
+        self._key = key
+        self._attr_icon = "mdi:ev-station"
+        self._attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    @property
+    def device_info(self):
+        return {
+            "identifiers": {(DOMAIN, "enpal_device")},
+            "name": "Enpal Webgerät",
+            "manufacturer": "Enpal",
+            "model": "Webparser",
+        }
+
+    @property
+    def native_value(self):
+        return self.coordinator.data.get(self._key)
+
+class WallboxModeSensor(WallboxCoordinatorEntity):
+    def __init__(self, coordinator):
+        super().__init__(coordinator, "Wallbox Lademodus", "wallbox_mode", "mode")
+
+class WallboxStatusSensor(WallboxCoordinatorEntity):
+    def __init__(self, coordinator):
+        super().__init__(coordinator, "Wallbox Status", "wallbox_status", "status")
