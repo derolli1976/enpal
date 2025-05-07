@@ -2,6 +2,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.config_entries import ConfigEntries
 from homeassistant.helpers.typing import ConfigType
+from homeassistant.exceptions import ConfigEntryNotReady
 from .const import DOMAIN
 
 import logging
@@ -20,8 +21,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     if entry.options.get("use_wallbox_addon", False):
         platforms += ["button"]
-
-    await hass.config_entries.async_forward_entry_setups(entry, platforms)
+    try:
+        await hass.config_entries.async_forward_entry_setups(entry, platforms)
+    except Exception as e:
+        raise ConfigEntryNotReady(f"Error setting up entry: {e}")
 
     return True
 

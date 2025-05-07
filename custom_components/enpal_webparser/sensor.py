@@ -172,11 +172,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         update_method=async_wallbox_update,
         update_interval=timedelta(seconds=interval),
     )
-    try:
-        await wallbox_coordinator.async_config_entry_first_refresh()
-    except Exception as e:
-        raise ConfigEntryNotReady(f"Wallbox-Daten konnten nicht geladen werden: {e}") from e
-
+    await wallbox_coordinator.async_config_entry_first_refresh()
+    
     if entry.options.get("use_wallbox_addon", False):
         entities.extend([
         WallboxModeSensor(wallbox_coordinator),
@@ -196,6 +193,9 @@ class EnpalSensor(SensorEntity):
             self._attr_native_value = sensor["value"]
         self._attr_native_unit_of_measurement = sensor["unit"]
         self._attr_device_class = sensor["device_class"]
+        # Ergänzung für Energiewerte
+        if self._attr_device_class == "energy":
+            self._attr_state_class = "total_increasing"
         self._attr_should_poll = False
         self._attr_enabled_default = sensor["enabled"]
         self._attr_extra_state_attributes = {
