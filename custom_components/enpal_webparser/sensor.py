@@ -154,10 +154,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     wallbox_url = "http://127.0.0.1:36725/wallbox/status"
     
     async def async_wallbox_update():
-        wallbox_url = "http://127.0.0.1:36725/wallbox/status"
+        
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(wallbox_url, timeout=5) as resp:
+                async with session.get(wallbox_url, timeout=15) as resp:
                     if resp.status != 200:
                         raise UpdateFailed(f"Wallbox API Error: {resp.status}")
                     return await resp.json()
@@ -170,12 +170,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         logger=_LOGGER,
         name="Wallbox Status",
         update_method=async_wallbox_update,
-        update_interval=timedelta(seconds=30),
+        update_interval=timedelta(seconds=interval),
     )
     try:
         await wallbox_coordinator.async_config_entry_first_refresh()
     except Exception as e:
-        raise ConfigEntryNotReady(f"Wallbox-Daten konnten nicht geladen werden: {e}")
+        raise ConfigEntryNotReady(f"Wallbox-Daten konnten nicht geladen werden: {e}") from e
 
     if entry.options.get("use_wallbox_addon", False):
         entities.extend([
