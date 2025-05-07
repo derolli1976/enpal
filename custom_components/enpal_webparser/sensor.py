@@ -149,32 +149,33 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         uid = make_id(sensor["name"])
         _LOGGER.debug(f"[Enpal] Sensor hinzugefügt: {sensor['name']}")
         entities.append(EnpalSensor(uid, sensor, coordinator))
-
-    
-    wallbox_url = "http://127.0.0.1:36725/wallbox/status"
-    
-    async def async_wallbox_update():
-        
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(wallbox_url, timeout=15) as resp:
-                    if resp.status != 200:
-                        raise UpdateFailed(f"Wallbox API Error: {resp.status}")
-                    return await resp.json()
-        except Exception as e:
-            _LOGGER.error(f"[Enpal] Fehler beim Wallbox-Statusabruf: {e}")
-            raise UpdateFailed(f"Wallbox-Update fehlgeschlagen: {e}")
-
-    wallbox_coordinator = DataUpdateCoordinator(
-        hass,
-        logger=_LOGGER,
-        name="Wallbox Status",
-        update_method=async_wallbox_update,
-        update_interval=timedelta(seconds=interval),
-    )
-    await wallbox_coordinator.async_config_entry_first_refresh()
     
     if entry.options.get("use_wallbox_addon", False):
+    
+        wallbox_url = "http://127.0.0.1:36725/wallbox/status"
+        
+        async def async_wallbox_update():
+            
+            try:
+                async with aiohttp.ClientSession() as session:
+                    async with session.get(wallbox_url, timeout=15) as resp:
+                        if resp.status != 200:
+                            raise UpdateFailed(f"Wallbox API Error: {resp.status}")
+                        return await resp.json()
+            except Exception as e:
+                _LOGGER.error(f"[Enpal] Fehler beim Wallbox-Statusabruf: {e}")
+                raise UpdateFailed(f"Wallbox-Update fehlgeschlagen: {e}")
+
+        wallbox_coordinator = DataUpdateCoordinator(
+            hass,
+            logger=_LOGGER,
+            name="Wallbox Status",
+            update_method=async_wallbox_update,
+            update_interval=timedelta(seconds=interval),
+        )
+        await wallbox_coordinator.async_config_entry_first_refresh()
+    
+    
         entities.extend([
         WallboxModeSensor(wallbox_coordinator),
         WallboxStatusSensor(wallbox_coordinator),
