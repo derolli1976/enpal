@@ -2,11 +2,13 @@
   "config": {
     "step": {
       "user": {
+        "title": "Initial configuration",
+        "description": "You can set your options here",
         "data": {
           "url": "URL / IP address of your Enpal box",
           "interval": "Polling interval (in seconds)",
           "groups": "Select sensor groups",
-          "use_wallbox_addon": "Use Wallbox Add-on (EXPERIMENTAL!)"
+          "use_wallbox_addon": "Use Wallbox Add-on (EXPERIMENTAL!) Addon needs to be installed and configured FIRST! https://github.com/derolli1976/enpal-wallbox-addon"
         }
       }
     },
@@ -24,13 +26,13 @@
           "url": "URL / IP address of your Enpal box",
           "interval": "Polling interval (in seconds)",
           "groups": "Select sensor groups",
-          "use_wallbox_addon": "Use Wallbox Add-on (EXPERIMENTAL!)"
+          "use_wallbox_addon": "Use Wallbox Add-on (EXPERIMENTAL!) Addon needs to be installed and configured FIRST! https://github.com/derolli1976/enpal-wallbox-addon"
         }
       }
     },
     "error": {
-      "invalid_format": "Ungültige URL – sie muss mit http:// beginnen und eine gültige IP-Adresse oder Host enthalten.",
-      "unreachable": "Die URL konnte nicht erreicht werden – bitte Verbindung und Adresse prüfen."
+      "invalid_format": "Invalid URL – must start with http:// and contain a valid IP or hostname.",
+      "unreachable": "The URL could not be reached – please check connection and address."
     }
   }
 }

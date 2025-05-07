@@ -57,6 +57,37 @@ Die Integration kann über die Benutzeroberfläche von Home Assistant konfigurie
 
 ---
 
+
+## ⚙️ Neue Funktion: Wallbox-Steuerung *(experimentell)*
+
+Die Integration kann jetzt – **experimentell** – auch eine an die Enpal-Anlage angeschlossene **Wallbox** steuern, wenn zusätzlich folgendes Add-on installiert ist:
+
+👉 **[Enpal Wallbox Add-on von derolli1976](https://github.com/derolli1976/enpal-wallbox-addon)**
+
+Mit diesem Add-on können folgende Steuerfunktionen direkt in Home Assistant genutzt werden:
+
+- Start / Stopp der Ladung
+- Umschalten des Lade-Modus
+- Anzeige des aktuellen Status
+
+### 📥 Installation des Add-ons in Home Assistant
+
+1. Öffne in Home Assistant die **Supervisor-Oberfläche**.
+2. Gehe zu **"Add-on Store"**.
+3. Klicke auf das 3-Punkte-Menü oben rechts und wähle **"Repository hinzufügen"**.
+4. Füge dort folgende URL ein:
+
+   ```
+   https://github.com/derolli1976/enpal-wallbox-addon
+   ```
+
+5. Nach dem Hinzufügen erscheint das Add-on in der Liste.
+6. Installiere das Add-on und starte es.
+7. Stelle sicher, dass es läuft und mit deiner Enpal-Wallbox kommunizieren kann.
+
+> **Hinweis:** Die Steuerung ist derzeit als experimentell gekennzeichnet. Die Funktionalität kann sich noch ändern und es kann zu Fehlern kommen. Bitte teste sie vorsichtig und gib bei Problemen Feedback über GitHub.
+
+
 ## ❓ FAQ & Hilfe
 
 Antworten auf häufige Fragen findest du hier:  
