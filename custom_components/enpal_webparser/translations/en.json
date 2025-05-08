@@ -14,7 +14,8 @@
     },
     "error": {
       "invalid_format": "Invalid URL – must start with http:// and contain a valid IP or hostname.",
-      "unreachable": "The URL could not be reached – please check connection and address."
+      "unreachable": "The URL could not be reached – please check connection and address.",
+      "wallbox_unreachable": "Wallbox-API ist not reachable erreichbar. Please make sure the addon is installed and running."
     }
   },
   "options": {
@@ -32,7 +33,8 @@
     },
     "error": {
       "invalid_format": "Invalid URL – must start with http:// and contain a valid IP or hostname.",
-      "unreachable": "The URL could not be reached – please check connection and address."
+      "unreachable": "The URL could not be reached – please check connection and address.",
+      "wallbox_unreachable": "Wallbox-API ist not reachable erreichbar. Please make sure the addon is installed and running."
     }
   }
 }

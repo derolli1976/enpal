@@ -41,6 +41,23 @@ async def validate_enpal_url(url: str) -> bool:
         return False
 
 
+async def validate_wallbox_api() -> bool:
+    url = "http://localhost:36725/wallbox/status"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, timeout=5) as response:
+                if response.status != 200:
+                    _LOGGER.warning("[Enpal] Wallbox API HTTP error: %s", response.status)
+                    return False
+                data = await response.json()
+                success = data.get("success", False)
+                _LOGGER.info("[Enpal] Wallbox API success: %s", success)
+                return success is True
+    except Exception as e:
+        _LOGGER.warning("[Enpal] Wallbox API not reachable: %s", e)
+        return False
+
+
 class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
@@ -71,6 +88,8 @@ class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             if error:
                 errors["url"] = error
                 _LOGGER.warning("[Enpal] Invalid URL input: %s (%s)", url_input, error)
+            elif use_wallbox_addon and not await validate_wallbox_api():
+                errors["use_wallbox_addon"] = "wallbox_unreachable"
             else:
                 _LOGGER.info("[Enpal] URL validated: %s", url_checked)
                 return self.async_create_entry(
@@ -134,6 +153,8 @@ class EnpalOptionsFlowHandler(config_entries.OptionsFlow):
             if error:
                 errors["url"] = error
                 _LOGGER.warning("[Enpal] Invalid URL in OptionsFlow: %s (%s)", url_input, error)
+            elif use_wallbox_addon and not await validate_wallbox_api():
+                errors["use_wallbox_addon"] = "wallbox_unreachable"
             else:
                 _LOGGER.info("[Enpal] URL in OptionsFlow validated: %s", url_checked)
                 return self.async_create_entry(title="", data={
