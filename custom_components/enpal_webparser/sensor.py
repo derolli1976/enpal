@@ -15,6 +15,7 @@ from .const import DOMAIN, DEFAULT_INTERVAL, DEFAULT_URL
 
 _LOGGER = logging.getLogger(__name__)
 
+
 def friendly_name(group: str, sensor: str) -> str:
     group_lower = group.lower()
     parts = sensor.split('.')
@@ -33,14 +34,17 @@ def friendly_name(group: str, sensor: str) -> str:
     full_label = ' '.join(label)
     return full_label if group_lower in full_label.lower() else f"{group}: {full_label}"
 
+
 def make_id(name: str) -> str:
     name = name.lower()
     name = re.sub(r"[^\w]+", "_", name)
     return name.strip("_")
 
+
 def get_numeric_value(value: str):
     match = re.search(r"[-+]?[0-9]*\.?[0-9]+", value.replace(',', '.'))
     return match.group(0) if match else value
+
 
 def get_class_and_unit(value: str):
     value = value.strip()
@@ -60,26 +64,33 @@ def get_class_and_unit(value: str):
             return unit, device_class
     return None, None
 
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
-    _LOGGER.info("[Enpal] sensor.py async_setup_entry gestartet")
+    _LOGGER.info("[Enpal] sensor.py async_setup_entry started")
 
     url = entry.options.get("url", DEFAULT_URL)
     interval = entry.options.get("interval", DEFAULT_INTERVAL)
     groups = entry.options.get("groups", [])
+    _LOGGER.debug("[Enpal] Configuration - URL: %s, Interval: %s, Groups: %s", url, interval, groups)
 
     async def async_update_data():
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, timeout=10) as resp:
+                    if resp.status != 200:
+                        raise UpdateFailed(f"Unexpected status code: {resp.status}")
                     html = await resp.text()
 
+            _LOGGER.debug("[Enpal] HTML content fetched successfully from %s", url)
             soup = BeautifulSoup(html, 'html.parser')
             cards = soup.find_all("div", class_="card")
+            _LOGGER.debug("[Enpal] Found %d card(s) in HTML", len(cards))
 
             sensors = []
             for card in cards:
                 group = card.find("h2").text.strip()
                 if group not in groups:
+                    _LOGGER.debug("[Enpal] Skipping group not in selected groups: %s", group)
                     continue
 
                 rows = card.find_all("tr")[1:]
@@ -105,7 +116,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                                 value_clean = str(round(float(value_clean) / 1000, 3))
                                 unit = "kWh"
                             except ValueError:
-                                pass
+                                _LOGGER.warning("[Enpal] Unable to convert Wh to kWh for value: %s", value_clean)
 
                         if device_class and unit is None:
                             default_units = {
@@ -118,19 +129,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                             }
                             unit = default_units.get(device_class)
 
-                        sensors.append({
+                        sensor_data = {
                             "name": friendly_name(group, raw_name),
                             "value": value_clean,
                             "unit": unit,
                             "device_class": device_class,
                             "enabled": group in groups,
                             "enpal_last_update": timestamp_iso
-                        })
-            _LOGGER.info(f"[Enpal] {len(sensors)} Sensor(en) geladen")
+                        }
+                        _LOGGER.debug("[Enpal] Parsed sensor: %s", sensor_data)
+                        sensors.append(sensor_data)
+
+            _LOGGER.info("[Enpal] Loaded %d sensor(s) from HTML", len(sensors))
             return sensors
         except Exception as e:
-            _LOGGER.error(f"[Enpal] Fehler beim Abruf: {e}")
-            raise UpdateFailed(f"Fehler beim Abrufen: {e}")
+            _LOGGER.exception("[Enpal] Error during HTML parsing or request: %s", e)
+            raise UpdateFailed(f"Data fetch failed: {e}")
 
     coordinator = DataUpdateCoordinator(
         hass,
@@ -147,24 +161,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     entities = []
     for sensor in coordinator.data:
         uid = make_id(sensor["name"])
-        _LOGGER.debug(f"[Enpal] Sensor hinzugefügt: {sensor['name']}")
+        _LOGGER.debug("[Enpal] Adding sensor entity: %s", sensor["name"])
         entities.append(EnpalSensor(uid, sensor, coordinator))
-    
+
     if entry.options.get("use_wallbox_addon", False):
-    
         wallbox_url = "http://127.0.0.1:36725/wallbox/status"
-        
+        _LOGGER.info("[Enpal] Wallbox add-on enabled, URL: %s", wallbox_url)
+
         async def async_wallbox_update():
-            
             try:
                 async with aiohttp.ClientSession() as session:
                     async with session.get(wallbox_url, timeout=15) as resp:
                         if resp.status != 200:
                             raise UpdateFailed(f"Wallbox API Error: {resp.status}")
-                        return await resp.json()
+                        data = await resp.json()
+                        _LOGGER.debug("[Enpal] Wallbox status data: %s", data)
+                        return data
             except Exception as e:
-                _LOGGER.error(f"[Enpal] Fehler beim Wallbox-Statusabruf: {e}")
-                raise UpdateFailed(f"Wallbox-Update fehlgeschlagen: {e}")
+                _LOGGER.exception("[Enpal] Error fetching wallbox status: %s", e)
+                raise UpdateFailed(f"Wallbox update failed: {e}")
 
         wallbox_coordinator = DataUpdateCoordinator(
             hass,
@@ -173,12 +188,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             update_method=async_wallbox_update,
             update_interval=timedelta(seconds=interval),
         )
+
         await wallbox_coordinator.async_config_entry_first_refresh()
-    
-    
+
         entities.extend([
-        WallboxModeSensor(wallbox_coordinator),
-        WallboxStatusSensor(wallbox_coordinator),
+            WallboxModeSensor(wallbox_coordinator),
+            WallboxStatusSensor(wallbox_coordinator),
         ])
 
     async_add_entities(entities)
@@ -194,7 +209,6 @@ class EnpalSensor(SensorEntity):
             self._attr_native_value = sensor["value"]
         self._attr_native_unit_of_measurement = sensor["unit"]
         self._attr_device_class = sensor["device_class"]
-        # Ergänzung für Energiewerte
         if self._attr_device_class == "energy":
             self._attr_state_class = "total_increasing"
         self._attr_should_poll = False
@@ -253,9 +267,11 @@ class WallboxCoordinatorEntity(CoordinatorEntity, SensorEntity):
     def native_value(self):
         return self.coordinator.data.get(self._key)
 
+
 class WallboxModeSensor(WallboxCoordinatorEntity):
     def __init__(self, coordinator):
         super().__init__(coordinator, "Wallbox Lademodus", "wallbox_mode", "mode")
+
 
 class WallboxStatusSensor(WallboxCoordinatorEntity):
     def __init__(self, coordinator):
