@@ -3,7 +3,7 @@ import aiohttp
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.components.button import ButtonEntity
 from homeassistant.helpers.entity import EntityCategory
-from .const import DOMAIN
+from .const import DOMAIN, DEFAULT_WALLBOX_API_ENDPOINT
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -19,8 +19,9 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
         return
 
     _LOGGER.info("[Enpal] Setting up Wallbox buttons")
-    options = config_entry.options
-    base_url = "http://localhost:36725/wallbox"
+    #options = config_entry.options
+    #base_url = "http://localhost:36725/wallbox"
+    base_url = DEFAULT_WALLBOX_API_ENDPOINT
 
     buttons = [
         EnpalWallboxButton(hass, "Ladevorgang starten", f"{base_url}/start", "start"),

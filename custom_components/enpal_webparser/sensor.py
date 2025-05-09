@@ -11,7 +11,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, CoordinatorEntity, UpdateFailed
 from homeassistant.helpers.entity import EntityCategory
 
-from .const import DOMAIN, DEFAULT_INTERVAL, DEFAULT_URL
+from .const import DOMAIN, DEFAULT_INTERVAL, DEFAULT_URL, DEFAULT_WALLBOX_API_ENDPOINT
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -165,7 +165,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         entities.append(EnpalSensor(uid, sensor, coordinator))
 
     if entry.options.get("use_wallbox_addon", False):
-        wallbox_url = "http://127.0.0.1:36725/wallbox/status"
+        #wallbox_url = "http://127.0.0.1:36725/wallbox/status"
+        wallbox_url = f"{DEFAULT_WALLBOX_API_ENDPOINT}/status"
+
         _LOGGER.info("[Enpal] Wallbox add-on enabled, URL: %s", wallbox_url)
 
         async def async_wallbox_update():
