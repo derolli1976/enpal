@@ -59,19 +59,19 @@ body:
     id: logs
     attributes:
       label: Home Assistant Logausgaben
-      description: Relevante Einträge aus dem HA-Log
+      description: Relevante Einträge aus dem Home Assistant Log (falls vorhanden).
       render: shell
   - type: textarea
     id: config
     attributes:
       label: Relevanter Konfigurationsauszug
-      description: Falls zutreffend – teile relevante Ausschnitte deiner Konfiguration (z. B. configuration.yaml)
+      description: Falls zutreffend – teile relevante Ausschnitte deiner Konfiguration (z. B. configuration.yaml).
       render: yaml
   - type: dropdown
     id: wallbox_used
     attributes:
       label: Verwendest du das Wallbox Add-on?
-      description: Wenn ja, stelle bitte sicher, dass das Add-on korrekt installiert und erreichbar ist.
+      description: Wenn ja, stelle bitte sicher, dass es korrekt installiert und erreichbar ist.
       options:
         - Ja
         - Nein
@@ -81,19 +81,11 @@ body:
     id: wallbox_addon_version
     attributes:
       label: Version des Wallbox Add-ons
-      description: Nur wenn du das Add-on nutzt – gib die verwendete Version an.
+      description: Nur ausfüllen, wenn du das Wallbox Add-on nutzt.
       placeholder: z. B. v0.3.1
-    validations:
-      required: false
-    conditional:
-      field: wallbox_used
-      value: "Ja"
   - type: textarea
     id: wallbox_addon_logs
     attributes:
       label: Logausgaben des Wallbox Add-ons
-      description: Füge relevante Logs aus dem Add-on hinzu, falls verfügbar.
+      description: Nur ausfüllen, wenn du das Add-on nutzt. Bitte relevante Logzeilen hier einfügen.
       render: shell
-    conditional:
-      field: wallbox_used
-      value: "Ja"
