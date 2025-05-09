@@ -1,0 +1,31 @@
+name: ✨ Feature Request
+description: Vorschläge für neue Funktionen oder Verbesserungen
+title: "[Feature] "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Danke für deinen Vorschlag! Je klarer du formulierst, desto besser können wir ihn umsetzen.
+  - type: input
+    id: context
+    attributes:
+      label: Welches Problem möchtest du lösen?
+      description: Beschreibe das Szenario oder den Use Case, den du verbessern möchtest.
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Dein Vorschlag
+      description: Welche Funktion wünschst du dir? Wie soll sie aussehen?
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternativen, die du in Betracht gezogen hast
+      description: Gibt es andere Lösungen, die für dich infrage kamen?
+  - type: dropdown
+    id: wallbox_related
+    attributes:
+      label: Betrifft dein Wunsch die Wallbox-Steuerung?
+      options:
+        - Ja
+        - Nein
