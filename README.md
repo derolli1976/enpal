@@ -22,6 +22,7 @@ Getestet mit der Version 2 der Enpal Box und Solar Rel. 8.45.3-322763 (08.04.202
 - Sensoren erscheinen automatisch in Home Assistant
 - Nicht ausgewählte Gruppen werden als deaktivierte Entitäten angezeigt
 - Integration vollständig konfigurierbar über das Home Assistant UI (auch nachträglich)
+- **NEU**: Experimentelle Steuerung einer Enpal-Wallbox (Start/Stopp, Moduswahl) über optionales Add-on
 
 ---
 
@@ -32,6 +33,7 @@ Die Integration kann über die Benutzeroberfläche von Home Assistant konfigurie
 - **URL der Datenquelle**: z. B. `http://192.168.178.178/deviceMessages`
 - **Aktualisierungsintervall**: Zeit in Sekunden
 - **Sensorgruppen**: Mehrfachauswahl wie `Wallbox`, `Battery`, `Inverter`, etc.
+- **Wallbox-Steuerung aktivieren**: Optional, wenn das Enpal Wallbox Add-on installiert ist
 
 ---
 
@@ -57,36 +59,28 @@ Die Integration kann über die Benutzeroberfläche von Home Assistant konfigurie
 
 ---
 
+## 🚗 Wallbox Add-on (Optional & Experimentell)
 
-## ⚙️ Neue Funktion: Wallbox-Steuerung *(experimentell)*
+Zur Steuerung einer Enpal Wallbox ist das folgende Add-on erforderlich:  
+🔗 [https://github.com/derolli1976/enpal-wallbox-addon](https://github.com/derolli1976/enpal-wallbox-addon)
 
-Die Integration kann jetzt – **experimentell** – auch eine an die Enpal-Anlage angeschlossene **Wallbox** steuern, wenn zusätzlich folgendes Add-on installiert ist:
+### 🔌 Add-on Installation
 
-👉 **[Enpal Wallbox Add-on von derolli1976](https://github.com/derolli1976/enpal-wallbox-addon)**
-
-Mit diesem Add-on können folgende Steuerfunktionen direkt in Home Assistant genutzt werden:
-
-- Start / Stopp der Ladung
-- Umschalten des Lade-Modus
-- Anzeige des aktuellen Status
-
-### 📥 Installation des Add-ons in Home Assistant
-
-1. Öffne in Home Assistant die **Supervisor-Oberfläche**.
-2. Gehe zu **"Add-on Store"**.
-3. Klicke auf das 3-Punkte-Menü oben rechts und wähle **"Repository hinzufügen"**.
-4. Füge dort folgende URL ein:
+1. Öffne den Home Assistant **Add-on Store**
+2. Gehe zu **Repositories** (3-Punkte-Menü oben rechts)
+3. Füge folgendes Repository hinzu:
 
    ```
    https://github.com/derolli1976/enpal-wallbox-addon
    ```
 
-5. Nach dem Hinzufügen erscheint das Add-on in der Liste.
-6. Installiere das Add-on und starte es.
-7. Stelle sicher, dass es läuft und mit deiner Enpal-Wallbox kommunizieren kann.
+4. Installiere das Add-on und konfiguriere die IP-Adresse der Enpal Box
+5. Starte das Add-on und aktiviere **"Start on boot"** bei Bedarf
+6. Aktiviere die Wallbox-Steuerung in der Enpal-Integration
 
-> **Hinweis:** Die Steuerung ist derzeit als experimentell gekennzeichnet. Die Funktionalität kann sich noch ändern und es kann zu Fehlern kommen. Bitte teste sie vorsichtig und gib bei Problemen Feedback über GitHub.
+> ⚠️ Das Feature ist experimentell. Fehler können auftreten. Feedback ist willkommen!
 
+---
 
 ## ❓ FAQ & Hilfe
 
@@ -109,5 +103,3 @@ Es handelt sich um eine **inoffizielle, private Integration**, die auf öffentli
 
 Die Nutzung erfolgt auf **eigene Verantwortung**.  
 Funktionen können durch Firmware- oder UI-Änderungen von Enpal jederzeit beeinträchtigt werden.
-
----
