@@ -1,0 +1,91 @@
+name: 🐛 Bug melden
+description: Etwas funktioniert nicht wie erwartet? Bitte gib uns möglichst viele Informationen.
+title: "[Bug] "
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Danke, dass du einen Bug meldest! Bitte fülle die folgenden Felder so genau wie möglich aus.
+  - type: input
+    id: integration_version
+    attributes:
+      label: Version der Integration
+      description: Welche Version deiner Custom Integration ist installiert?
+      placeholder: z. B. v1.2.0 oder "aktueller main branch"
+    validations:
+      required: true
+  - type: input
+    id: ha_version
+    attributes:
+      label: Home Assistant Version
+      description: Welche Home Assistant Version verwendest du?
+      placeholder: z. B. 2024.5.2
+    validations:
+      required: true
+  - type: dropdown
+    id: ha_installation_type
+    attributes:
+      label: Installationsart von Home Assistant
+      description: Wie hast du Home Assistant installiert?
+      options:
+        - Home Assistant OS
+        - Home Assistant Supervised
+        - Home Assistant Container
+        - Home Assistant Core (Python venv)
+        - Andere / Unsicher
+    validations:
+      required: true
+  - type: textarea
+    id: description
+    attributes:
+      label: Was ist das Problem?
+      description: Beschreibe den Fehler möglichst detailliert. Was hast du erwartet und was ist stattdessen passiert?
+      placeholder: Fehlermeldung, unerwartetes Verhalten etc.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Schritte zur Reproduktion
+      description: Wie kann man das Problem zuverlässig nachstellen?
+      placeholder: |
+        1. Konfiguration ändern
+        2. Home Assistant neu starten
+        3. Fehler tritt auf
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Home Assistant Logausgaben
+      description: Relevante Einträge aus dem Home Assistant Log (falls vorhanden).
+      render: shell
+  - type: textarea
+    id: config
+    attributes:
+      label: Relevanter Konfigurationsauszug
+      description: Falls zutreffend – teile relevante Ausschnitte deiner Konfiguration (z. B. configuration.yaml).
+      render: yaml
+  - type: dropdown
+    id: wallbox_used
+    attributes:
+      label: Verwendest du das Wallbox Add-on?
+      description: Wenn ja, stelle bitte sicher, dass es korrekt installiert und erreichbar ist.
+      options:
+        - Ja
+        - Nein
+    validations:
+      required: true
+  - type: input
+    id: wallbox_addon_version
+    attributes:
+      label: Version des Wallbox Add-ons
+      description: Nur ausfüllen, wenn du das Wallbox Add-on nutzt.
+      placeholder: z. B. v0.3.1
+  - type: textarea
+    id: wallbox_addon_logs
+    attributes:
+      label: Logausgaben des Wallbox Add-ons
+      description: Nur ausfüllen, wenn du das Add-on nutzt. Bitte relevante Logzeilen hier einfügen.
+      render: shell
