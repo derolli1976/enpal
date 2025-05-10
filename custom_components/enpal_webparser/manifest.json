@@ -1,7 +1,7 @@
 {
   "domain": "enpal_webparser",
   "name": "Enpal Solar",
-  "version": "2.0.0",
+  "version": "2.0.1",
   "documentation": "https://github.com/derolli1976/enpal",
   "issue_tracker": "https://github.com/derolli1976/enpal/issues",
   "dependencies": [],
