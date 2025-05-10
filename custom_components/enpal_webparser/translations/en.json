@@ -15,7 +15,7 @@
     "error": {
       "invalid_format": "Invalid URL - it must start with http:// and contain a valid IP address or hostname.",
       "unreachable": "The URL could not be reached - please check the connection and address.",
-      "wallbox_unreachable": "The Wallbox API is not reachable. Make sure the add-on is running and accessible! Test: http://<Home Assistant IP ADDRESS>:36725/wallbox/status"
+      "wallbox_unreachable": "The Wallbox API is not reachable. Make sure the add-on is running and accessible! Test: http://Home-Assistant-IP-ADDRESS:36725/wallbox/status"
     }
   },
   "options": {
@@ -34,7 +34,7 @@
     "error": {
       "invalid_format": "Invalid URL - it must start with http:// and contain a valid IP address or hostname.",
       "unreachable": "The URL could not be reached - please check the connection and address.",
-      "wallbox_unreachable": "The Wallbox API is not reachable. Make sure the add-on is running and accessible! Test: http://<Home Assistant IP ADDRESS>:36725/wallbox/status"
+      "wallbox_unreachable": "The Wallbox API is not reachable. Make sure the add-on is running and accessible! Test: http://Home-Assistant-IP-ADDRESS:36725/wallbox/status"
     }
   }
 }

@@ -7,7 +7,7 @@ from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv
 
-from .const import DOMAIN, DEFAULT_URL, DEFAULT_INTERVAL, DEFAULT_GROUPS, DEFAULT_USE_WALLBOX_ADDON
+from .const import DOMAIN, DEFAULT_URL, DEFAULT_INTERVAL, DEFAULT_GROUPS, DEFAULT_USE_WALLBOX_ADDON, DEFAULT_WALLBOX_API_ENDPOINT
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -42,10 +42,11 @@ async def validate_enpal_url(url: str) -> bool:
 
 
 async def validate_wallbox_api() -> bool:
-    url = "http://localhost:36725/wallbox/status"
+    url = f"{DEFAULT_WALLBOX_API_ENDPOINT}/status"
+    
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=5) as response:
+            async with session.get(url, timeout=25) as response:
                 if response.status != 200:
                     _LOGGER.warning("[Enpal] Wallbox API HTTP error: %s", response.status)
                     return False
