@@ -1,7 +1,7 @@
 {
   "name": "Enpal Solar",
   "domain": "enpal_webparser",
-  "homeassistant": "2023.0.0",
+  "homeassistant": "2023.5.0",
   "render_readme": true,
   "integration_type": "integration",
   "iot_class": "local_polling",

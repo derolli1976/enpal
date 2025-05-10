@@ -1,0 +1,40 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Erstkonfiguration",
+        "description": "Hier kannst du Einstellungen vornehmen",
+        "data": {
+          "url": "URL / IP-Adresse der Enpal Box",
+          "interval": "Abfrageintervall (in Sekunden) - Weniger als 60 Sekunden wird nicht empfohlen!",
+          "groups": "Sensorgruppen auswählen",
+          "use_wallbox_addon": "Wallbox Add-on verwenden (EXPERIMENTELL!) - Das Add-on muss vorher installiert und konfiguriert werden - https://github.com/derolli1976/enpal-wallbox-addon - nur bei Homeassistant OS oder Supevisor Installation möglich!"
+        }
+      }
+    },
+    "error": {
+      "invalid_format": "Ungültige URL - sie muss mit http:// beginnen und eine gültige IP-Adresse oder Host enthalten.",
+      "unreachable": "Die URL konnte nicht erreicht werden - bitte Verbindung und Adresse prüfen.",
+      "wallbox_unreachable": "Die Wallbox-API ist nicht erreichbar. Stelle sicher, dass das Add-on läuft und erreichbar ist! Test: http://<Homeassistant-IP-ADDRESSE>:36725/wallbox/status"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Optionen anpassen",
+        "description": "Hier kannst du zusätzliche Einstellungen vornehmen",
+        "data": {
+          "url": "URL / IP-Adresse der Enpal Box",
+          "interval": "Abfrageintervall (in Sekunden) - Weniger als 60 Sekunden wird nicht empfohlen!",
+          "groups": "Sensorgruppen auswählen",
+          "use_wallbox_addon": "Wallbox Add-on verwenden (EXPERIMENTELL!) - Das Add-on muss vorher installiert und konfiguriert werden - https://github.com/derolli1976/enpal-wallbox-addon - nur bei Homeassistant OS oder Supevisor Installation möglich!"
+        }
+      }
+    },
+    "error": {
+      "invalid_format": "Ungültige URL - sie muss mit http:// beginnen und eine gültige IP-Adresse oder Host enthalten.",
+      "unreachable": "Die URL konnte nicht erreicht werden - bitte Verbindung und Adresse prüfen.",
+      "wallbox_unreachable": "Die Wallbox-API ist nicht erreichbar. Stelle sicher, dass das Add-on läuft und erreichbar ist! Test: http://<Homeassistant-IP-ADDRESSE>:36725/wallbox/status"
+    }
+  }
+}

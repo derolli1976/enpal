@@ -1,0 +1,40 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Initial Configuration",
+        "description": "Configure your settings here",
+        "data": {
+          "url": "URL / IP address of the Enpal Box",
+          "interval": "Polling interval (in seconds) - Intervals below 60 seconds are not recommended!",
+          "groups": "Select sensor groups",
+          "use_wallbox_addon": "Use Wallbox add-on (EXPERIMENTAL!) - The add-on must be installed and configured beforehand - https://github.com/derolli1976/enpal-wallbox-addon - only supported on Home Assistant OS or Supervisor installations!"
+        }
+      }
+    },
+    "error": {
+      "invalid_format": "Invalid URL - it must start with http:// and contain a valid IP address or hostname.",
+      "unreachable": "The URL could not be reached - please check the connection and address.",
+      "wallbox_unreachable": "The Wallbox API is not reachable. Make sure the add-on is running and accessible! Test: http://<Home Assistant IP ADDRESS>:36725/wallbox/status"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Adjust Options",
+        "description": "Here you can configure additional settings",
+        "data": {
+          "url": "URL / IP address of the Enpal Box",
+          "interval": "Polling interval (in seconds) - Intervals below 60 seconds are not recommended!",
+          "groups": "Select sensor groups",
+          "use_wallbox_addon": "Use Wallbox add-on (EXPERIMENTAL!) - The add-on must be installed and configured beforehand - https://github.com/derolli1976/enpal-wallbox-addon - only supported on Home Assistant OS or Supervisor installations!"
+        }
+      }
+    },
+    "error": {
+      "invalid_format": "Invalid URL - it must start with http:// and contain a valid IP address or hostname.",
+      "unreachable": "The URL could not be reached - please check the connection and address.",
+      "wallbox_unreachable": "The Wallbox API is not reachable. Make sure the add-on is running and accessible! Test: http://<Home Assistant IP ADDRESS>:36725/wallbox/status"
+    }
+  }
+}

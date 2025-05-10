@@ -22,6 +22,7 @@ Getestet mit der Version 2 der Enpal Box und Solar Rel. 8.45.3-322763 (08.04.202
 - Sensoren erscheinen automatisch in Home Assistant
 - Nicht ausgewählte Gruppen werden als deaktivierte Entitäten angezeigt
 - Integration vollständig konfigurierbar über das Home Assistant UI (auch nachträglich)
+- **NEU**: Experimentelle Steuerung einer Enpal-Wallbox (Start/Stopp, Moduswahl) über optionales Add-on
 
 ---
 
@@ -32,6 +33,7 @@ Die Integration kann über die Benutzeroberfläche von Home Assistant konfigurie
 - **URL der Datenquelle**: z. B. `http://192.168.178.178/deviceMessages`
 - **Aktualisierungsintervall**: Zeit in Sekunden
 - **Sensorgruppen**: Mehrfachauswahl wie `Wallbox`, `Battery`, `Inverter`, etc.
+- **Wallbox-Steuerung aktivieren**: Optional, wenn das Enpal Wallbox Add-on installiert ist
 
 ---
 
@@ -57,6 +59,29 @@ Die Integration kann über die Benutzeroberfläche von Home Assistant konfigurie
 
 ---
 
+## 🚗 Wallbox Add-on (Optional & Experimentell)
+
+Zur Steuerung einer Enpal Wallbox ist das folgende Add-on erforderlich:  
+🔗 [https://github.com/derolli1976/enpal-wallbox-addon](https://github.com/derolli1976/enpal-wallbox-addon)
+
+### 🔌 Add-on Installation
+
+1. Öffne den Home Assistant **Add-on Store**
+2. Gehe zu **Repositories** (3-Punkte-Menü oben rechts)
+3. Füge folgendes Repository hinzu:
+
+   ```
+   https://github.com/derolli1976/enpal-wallbox-addon
+   ```
+
+4. Installiere das Add-on und konfiguriere die IP-Adresse der Enpal Box
+5. Starte das Add-on und aktiviere **"Start on boot"** bei Bedarf
+6. Aktiviere die Wallbox-Steuerung in der Enpal-Integration
+
+> ⚠️ Das Feature ist experimentell. Fehler können auftreten. Feedback ist willkommen!
+
+---
+
 ## ❓ FAQ & Hilfe
 
 Antworten auf häufige Fragen findest du hier:  
@@ -78,5 +103,3 @@ Es handelt sich um eine **inoffizielle, private Integration**, die auf öffentli
 
 Die Nutzung erfolgt auf **eigene Verantwortung**.  
 Funktionen können durch Firmware- oder UI-Änderungen von Enpal jederzeit beeinträchtigt werden.
-
----
