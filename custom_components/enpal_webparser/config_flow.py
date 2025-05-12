@@ -33,7 +33,7 @@ def sanitize_url(raw_url: str) -> tuple[str, str | None]:
 async def validate_enpal_url(url: str) -> bool:
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=20) as response:
+            async with session.get(url, timeout=30) as response:
                 _LOGGER.info("[Enpal] URL reachable, status: %s", response.status)
                 return response.status == 200
     except Exception as e:
@@ -46,7 +46,7 @@ async def validate_wallbox_api() -> bool:
     
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=30) as response:
+            async with session.get(url, timeout=45) as response:
                 if response.status != 200:
                     _LOGGER.warning("[Enpal] Wallbox API HTTP error: %s", response.status)
                     return False
