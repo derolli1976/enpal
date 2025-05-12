@@ -46,7 +46,7 @@ async def validate_wallbox_api() -> bool:
     
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=25) as response:
+            async with session.get(url, timeout=30) as response:
                 if response.status != 200:
                     _LOGGER.warning("[Enpal] Wallbox API HTTP error: %s", response.status)
                     return False
