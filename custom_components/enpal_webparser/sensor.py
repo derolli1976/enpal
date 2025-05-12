@@ -10,6 +10,8 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, CoordinatorEntity, UpdateFailed
 from homeassistant.helpers.entity import EntityCategory
+from homeassistant.helpers.restore_state import RestoreEntity
+
 
 from .const import DOMAIN, DEFAULT_INTERVAL, DEFAULT_URL, DEFAULT_WALLBOX_API_ENDPOINT
 
@@ -76,7 +78,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     async def async_update_data():
         try:
             async with aiohttp.ClientSession() as session:
-                async with session.get(url, timeout=10) as resp:
+                async with session.get(url, timeout=30) as resp:
                     if resp.status != 200:
                         raise UpdateFailed(f"Unexpected status code: {resp.status}")
                     html = await resp.text()
@@ -154,6 +156,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         update_interval=timedelta(seconds=interval),
     )
 
+    hass.data.setdefault(DOMAIN, {})
+    hass.data[DOMAIN].setdefault("cumulative_energy_state", {
+        "value": 0.0,
+        "last_updated": datetime.now().isoformat()
+    })
+
     hass.data[DOMAIN]["coordinator"] = coordinator
 
     await coordinator.async_config_entry_first_refresh()
@@ -164,8 +172,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         _LOGGER.debug("[Enpal] Adding sensor entity: %s", sensor["name"])
         entities.append(EnpalSensor(uid, sensor, coordinator))
 
+    entities.append(CumulativeEnergySensor(hass, coordinator, "Inverter Power DC Total (Huawei)", interval))
+
     if entry.options.get("use_wallbox_addon", False):
-        #wallbox_url = "http://127.0.0.1:36725/wallbox/status"
         wallbox_url = f"{DEFAULT_WALLBOX_API_ENDPOINT}/status"
 
         _LOGGER.info("[Enpal] Wallbox add-on enabled, URL: %s", wallbox_url)
@@ -173,7 +182,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         async def async_wallbox_update():
             try:
                 async with aiohttp.ClientSession() as session:
-                    async with session.get(wallbox_url, timeout=15) as resp:
+                    async with session.get(wallbox_url, timeout=30) as resp:
                         if resp.status != 200:
                             raise UpdateFailed(f"Wallbox API Error: {resp.status}")
                         data = await resp.json()
@@ -245,6 +254,75 @@ class EnpalSensor(SensorEntity):
                 self._attr_extra_state_attributes["enpal_last_update"] = sensor.get("enpal_last_update")
                 break
         self.async_write_ha_state()
+
+
+
+
+class CumulativeEnergySensor(SensorEntity, RestoreEntity):
+    def __init__(self, hass: HomeAssistant, coordinator: DataUpdateCoordinator, sensor_name: str, interval_seconds: int):
+        self.hass = hass
+        self._attr_name = "Inverter: Energy produced total (DC)"
+        self._attr_unique_id = "cumulative_energy_produced_dc_kwh"
+        self._attr_device_class = "energy"
+        self._attr_state_class = "total_increasing"
+        self._attr_native_unit_of_measurement = "kWh"
+        self._attr_icon = "mdi:solar-power"
+        self._coordinator = coordinator
+        self._source_uid = make_id(sensor_name)
+        self._interval_hours = interval_seconds / 3600
+        self._state = self.hass.data[DOMAIN]["cumulative_energy_state"]
+        self._value = None
+        self._last_updated = None
+
+
+    @property
+    def native_value(self):
+        return round(self._value or 0.0, 3)
+
+
+    @property
+    def extra_state_attributes(self):
+        return {
+            "last_updated": self._last_updated
+        }
+
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state and last_state.state not in (None, 'unknown', 'unavailable'):
+            try:
+                self._value = float(last_state.state)
+                _LOGGER.info("[Enpal] Recovered Energy Value: %.3f kWh", self._value)
+            except ValueError:
+                self._value = 0.0
+        else:
+            self._value = 0.0
+        self._coordinator.async_add_listener(self._handle_coordinator_update)
+
+
+    def _handle_coordinator_update(self):
+        for sensor in self._coordinator.data:
+            _LOGGER.debug("[Enpal] Checking Sensor: %s (%s)", sensor["name"], make_id(sensor["name"]))
+            if make_id(sensor["name"]) == self._source_uid:
+                try:
+                    power_watt = float(sensor["value"])
+                    energy_kwh = power_watt * self._interval_hours / 1000
+                    self._value += energy_kwh
+                    self._last_updated = datetime.now().isoformat()
+                    _LOGGER.debug("[Enpal] +%.5f kWh -> Total: %.3f", energy_kwh, self._state["value"])
+                except Exception as e:
+                    _LOGGER.warning("[Enpal] Error in energy calculation: %s", e)
+                break
+        self.async_write_ha_state()
+
+    @property
+    def device_info(self):
+        return {
+            "identifiers": {(DOMAIN, "enpal_device")},
+            "name": "Enpal Webgerät",
+            "manufacturer": "Enpal",
+            "model": "Webparser",
+        }
 
 
 class WallboxCoordinatorEntity(CoordinatorEntity, SensorEntity):

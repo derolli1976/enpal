@@ -58,7 +58,7 @@ class EnpalWallboxButton(ButtonEntity):
         _LOGGER.info("[Enpal] Button pressed: %s", self._attr_name)
         try:
             session = async_get_clientsession(self.hass)
-            async with session.post(self._url, timeout=5) as response:
+            async with session.post(self._url, timeout=30) as response:
                 if response.status != 200:
                     text = await response.text()
                     _LOGGER.warning("[Enpal] Wallbox command failed (%s): %s", response.status, text)
