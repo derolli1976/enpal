@@ -1,4 +1,5 @@
 import logging
+
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 

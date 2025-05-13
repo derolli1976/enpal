@@ -1,4 +1,5 @@
 import logging
+
 from homeassistant.components.select import SelectEntity
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
@@ -57,15 +58,14 @@ class EnpalWallboxModeSelect(SelectEntity):
             _LOGGER.warning("Unknown wallbox mode from sensor: %s", mode)
             return
 
-        # Wenn gerade ein pending change aktiv ist, dann prüfen:
+        
         if self._pending_change:
             if self._pending_change == new_option:
-                # Auswahl wurde bestätigt → Pending löschen
+        
                 _LOGGER.debug("Pending wallbox mode %s confirmed by sensor.", new_option)
                 self._current_option = new_option
                 self._pending_change = None
             else:
-                # Auswahl noch nicht bestätigt → Anzeige bleibt unverändert
                 _LOGGER.debug("Wallbox mode change pending: %s (sensor reports %s)", self._pending_change, new_option)
         else:
             self._current_option = new_option
@@ -78,7 +78,6 @@ class EnpalWallboxModeSelect(SelectEntity):
 
             await self._call_wallbox_api(f"/set_{key}")
 
-            # Im Erfolgsfall übernehmen wir nicht direkt — wir warten auf Bestätigung durch Sensor
         else:
             _LOGGER.warning("Unknown selected option: %s", option)
 
