@@ -1,19 +1,22 @@
-from datetime import timedelta, datetime
-import re
+from datetime import datetime, timedelta
+import asyncio
 import logging
+import re
+
 import aiohttp
 from bs4 import BeautifulSoup
 
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, CoordinatorEntity, UpdateFailed
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.restore_state import RestoreEntity
-
+from homeassistant.helpers.event import async_track_state_change_event
 
 from .const import DOMAIN, DEFAULT_INTERVAL, DEFAULT_URL, DEFAULT_WALLBOX_API_ENDPOINT
+
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -75,12 +78,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     groups = entry.options.get("groups", [])
     _LOGGER.debug("[Enpal] Configuration - URL: %s, Interval: %s, Groups: %s", url, interval, groups)
 
+    last_successful_data = []
+
     async def async_update_data():
+        nonlocal last_successful_data
         try:
             async with aiohttp.ClientSession() as session:
                 async with session.get(url, timeout=30) as resp:
                     if resp.status != 200:
-                        raise UpdateFailed(f"Unexpected status code: {resp.status}")
+                        raise Exception(f"Unexpected status code: {resp.status}")
                     html = await resp.text()
 
             _LOGGER.debug("[Enpal] HTML content fetched successfully from %s", url)
@@ -92,7 +98,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             for card in cards:
                 group = card.find("h2").text.strip()
                 if group not in groups:
-                    _LOGGER.debug("[Enpal] Skipping group not in selected groups: %s", group)
                     continue
 
                 rows = card.find_all("tr")[1:]
@@ -139,14 +144,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                             "enabled": group in groups,
                             "enpal_last_update": timestamp_iso
                         }
-                        _LOGGER.debug("[Enpal] Parsed sensor: %s", sensor_data)
                         sensors.append(sensor_data)
 
             _LOGGER.info("[Enpal] Loaded %d sensor(s) from HTML", len(sensors))
+            last_successful_data = sensors
             return sensors
+
         except Exception as e:
-            _LOGGER.exception("[Enpal] Error during HTML parsing or request: %s", e)
-            raise UpdateFailed(f"Data fetch failed: {e}")
+            if last_successful_data:
+                _LOGGER.warning("[Enpal] Error during update, using last known good values: %s", e)
+                return last_successful_data
+            else:
+                _LOGGER.exception("[Enpal] No previous data available")
+                raise UpdateFailed(f"Initial data fetch failed: {e}")
 
     coordinator = DataUpdateCoordinator(
         hass,
@@ -165,6 +175,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     hass.data[DOMAIN]["coordinator"] = coordinator
 
     await coordinator.async_config_entry_first_refresh()
+    _LOGGER.info("[Enpal] Verfügbare Sensoren nach HTML-Parsing:")
+    for sensor in coordinator.data:
+        _LOGGER.info("[Enpal]   Name: %s -> UID: %s", sensor["name"], make_id(sensor["name"]))
+
 
     entities = []
     for sensor in coordinator.data:
@@ -173,26 +187,34 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         entities.append(EnpalSensor(uid, sensor, coordinator))
 
     entities.append(CumulativeEnergySensor(hass, coordinator, "Inverter Power DC Total (Huawei)", interval))
-    entities.append(DailyResetEnergySensor(hass, coordinator, "Inverter: Energy produced today (DC)"))
+    entities.append(DailyResetFromEntitySensor(hass, "sensor.inverter_energy_produced_total_dc"))
+
 
 
     if entry.options.get("use_wallbox_addon", False):
         wallbox_url = f"{DEFAULT_WALLBOX_API_ENDPOINT}/status"
-
         _LOGGER.info("[Enpal] Wallbox add-on enabled, URL: %s", wallbox_url)
 
+        wallbox_data = {}
+
         async def async_wallbox_update():
+            nonlocal wallbox_data
             try:
                 async with aiohttp.ClientSession() as session:
-                    async with session.get(wallbox_url, timeout=30) as resp:
+                    async with session.get(wallbox_url, timeout=10) as resp:
                         if resp.status != 200:
-                            raise UpdateFailed(f"Wallbox API Error: {resp.status}")
+                            raise Exception(f"Wallbox API Error: {resp.status}")
                         data = await resp.json()
                         _LOGGER.debug("[Enpal] Wallbox status data: %s", data)
+                        wallbox_data = data
                         return data
             except Exception as e:
-                _LOGGER.exception("[Enpal] Error fetching wallbox status: %s", e)
-                raise UpdateFailed(f"Wallbox update failed: {e}")
+                if wallbox_data:
+                    _LOGGER.warning("[Enpal] Wallbox update failed – using last known data: %s", e)
+                    return wallbox_data
+                else:
+                    _LOGGER.warning("[Enpal] Wallbox update failed – no previous data yet: %s", e)
+                    raise UpdateFailed(f"Wallbox update failed and no previous data: {e}")
 
         wallbox_coordinator = DataUpdateCoordinator(
             hass,
@@ -202,12 +224,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             update_interval=timedelta(seconds=interval),
         )
 
-        await wallbox_coordinator.async_config_entry_first_refresh()
+        # KEIN await – Hintergrund-Task starten, damit Home Assistant nicht crasht
+        hass.async_create_task(wallbox_coordinator.async_refresh())
 
         entities.extend([
             WallboxModeSensor(wallbox_coordinator),
             WallboxStatusSensor(wallbox_coordinator),
         ])
+        _LOGGER.debug("[Enpal] Wallbox-Sensoren hinzugefügt")
+
+
 
     async_add_entities(entities)
 
@@ -327,19 +353,19 @@ class CumulativeEnergySensor(SensorEntity, RestoreEntity):
         }
 
 
-class DailyResetEnergySensor(SensorEntity, RestoreEntity):
-    def __init__(self, hass: HomeAssistant, coordinator: DataUpdateCoordinator, sensor_name: str):
+
+
+class DailyResetFromEntitySensor(SensorEntity, RestoreEntity):
+    def __init__(self, hass: HomeAssistant, source_entity_id: str):
         self.hass = hass
-        self._attr_name = "Inverter: Energy produced today (DC)"
+        self._attr_name = "Inverter: Energy produced total (DC)"
         self._attr_unique_id = "daily_energy_produced_dc_kwh"
         self._attr_device_class = "energy"
         self._attr_state_class = "total"
         self._attr_native_unit_of_measurement = "kWh"
         self._attr_icon = "mdi:calendar-refresh"
-        self._coordinator = coordinator
-        self._source_uid = make_id(sensor_name)
+        self._source_entity_id = source_entity_id
         self._today_start_value = None
-        self._last_total = None
         self._value = 0.0
         self._last_reset = datetime.now().date()
 
@@ -351,59 +377,50 @@ class DailyResetEnergySensor(SensorEntity, RestoreEntity):
     def extra_state_attributes(self):
         return {
             "last_reset": self._last_reset.isoformat(),
-            "start_value": self._today_start_value,
-            "last_total": self._last_total,
+            "start_value": self._today_start_value if self._today_start_value is not None else "Not set"
         }
 
     async def async_added_to_hass(self):
-        await super().async_added_to_hass()
+        await RestoreEntity.async_added_to_hass(self)
+        # Statt self.hass.helpers.event.async_track_state_change_event(...),
+        # verwende den importierten async_track_state_change_event:
+        
+        async_track_state_change_event(
+            self.hass, self._source_entity_id, self._handle_state_update
+        )
         last_state = await self.async_get_last_state()
-
         if last_state and last_state.state not in (None, 'unknown', 'unavailable'):
             try:
                 self._value = float(last_state.state)
-                _LOGGER.info("[Enpal] Restored daily value: %.3f kWh", self._value)
-            except ValueError:
-                self._value = 0.0
-
-            self._today_start_value = self._try_restore_float(last_state.attributes.get("start_value"))
-            self._last_total = self._try_restore_float(last_state.attributes.get("last_total"))
-            last_reset_str = last_state.attributes.get("last_reset")
-            if last_reset_str:
-                try:
+                self._today_start_value = self._try_float(last_state.attributes.get("start_value"))
+                last_reset_str = last_state.attributes.get("last_reset")
+                if last_reset_str:
                     self._last_reset = datetime.fromisoformat(last_reset_str).date()
-                except Exception:
-                    self._last_reset = datetime.now().date()
+            except Exception:
+                pass
 
-        self._coordinator.async_add_listener(self._handle_coordinator_update)
-
-    def _try_restore_float(self, value):
+    def _try_float(self, val):
         try:
-            return float(value)
+            return float(val)
         except (TypeError, ValueError):
             return None
 
-    def _handle_coordinator_update(self):
+    @callback
+    def _handle_state_update(self, event):
         today = datetime.now().date()
-        for sensor in self._coordinator.data:
-            if make_id(sensor["name"]) == self._source_uid:
-                try:
-                    total_kwh = float(sensor["value"])
-                    _LOGGER.debug("[Enpal] Tageswert: Gesamt=%.3f, Start=%.3f", total_kwh, self._today_start_value or 0.0)
+        try:
+            new_total = float(event.data["new_state"].state)
+        except (TypeError, ValueError):
+            return
 
-                    if self._last_reset != today or self._today_start_value is None:
-                        _LOGGER.info("[Enpal] Neuer Tag erkannt – Tagesstartwert: %.3f", total_kwh)
-                        self._today_start_value = total_kwh
-                        self._last_reset = today
-                        self._value = 0.0
+        if self._today_start_value is None or self._last_reset != today:
+            self._today_start_value = new_total
+            self._last_reset = today
+            self._value = 0.0
+        else:
+            self._value = max(new_total - self._today_start_value, 0)
 
-                    self._value = max(total_kwh - self._today_start_value, 0)
-                    self._last_total = total_kwh
-                except Exception as e:
-                    _LOGGER.warning("[Enpal] Fehler bei Tageswert-Berechnung: %s", e)
-                break
-
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
     @property
     def device_info(self):
@@ -413,6 +430,7 @@ class DailyResetEnergySensor(SensorEntity, RestoreEntity):
             "manufacturer": "Enpal",
             "model": "Webparser",
         }
+
 
 
 class WallboxCoordinatorEntity(CoordinatorEntity, SensorEntity):
@@ -435,7 +453,9 @@ class WallboxCoordinatorEntity(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self):
-        return self.coordinator.data.get(self._key)
+        if self.coordinator.data:
+            return self.coordinator.data.get(self._key)
+        return None
 
 
 class WallboxModeSensor(WallboxCoordinatorEntity):
