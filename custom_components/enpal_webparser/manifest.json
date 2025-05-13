@@ -1,12 +1,12 @@
 {
   "domain": "enpal_webparser",
   "name": "Enpal Solar",
-  "version": "2.0.2",
-  "config_flow": true,
   "codeowners": ["@derolli1976"],
+  "config_flow": true,
   "dependencies": [],
   "documentation": "https://github.com/derolli1976/enpal",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/derolli1976/enpal/issues",
-  "requirements": []
+  "requirements": [],
+  "version": "2.0.2"
 }
