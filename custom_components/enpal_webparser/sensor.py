@@ -173,6 +173,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         entities.append(EnpalSensor(uid, sensor, coordinator))
 
     entities.append(CumulativeEnergySensor(hass, coordinator, "Inverter Power DC Total (Huawei)", interval))
+    entities.append(DailyResetEnergySensor(hass, coordinator, "Inverter: Energy produced today (DC)"))
+
 
     if entry.options.get("use_wallbox_addon", False):
         wallbox_url = f"{DEFAULT_WALLBOX_API_ENDPOINT}/status"
@@ -313,6 +315,94 @@ class CumulativeEnergySensor(SensorEntity, RestoreEntity):
                 except Exception as e:
                     _LOGGER.warning("[Enpal] Error in energy calculation: %s", e)
                 break
+        self.async_write_ha_state()
+
+    @property
+    def device_info(self):
+        return {
+            "identifiers": {(DOMAIN, "enpal_device")},
+            "name": "Enpal Webgerät",
+            "manufacturer": "Enpal",
+            "model": "Webparser",
+        }
+
+
+class DailyResetEnergySensor(SensorEntity, RestoreEntity):
+    def __init__(self, hass: HomeAssistant, coordinator: DataUpdateCoordinator, sensor_name: str):
+        self.hass = hass
+        self._attr_name = "Inverter: Energy produced today (DC)"
+        self._attr_unique_id = "daily_energy_produced_dc_kwh"
+        self._attr_device_class = "energy"
+        self._attr_state_class = "total"
+        self._attr_native_unit_of_measurement = "kWh"
+        self._attr_icon = "mdi:calendar-refresh"
+        self._coordinator = coordinator
+        self._source_uid = make_id(sensor_name)
+        self._today_start_value = None
+        self._last_total = None
+        self._value = 0.0
+        self._last_reset = datetime.now().date()
+
+    @property
+    def native_value(self):
+        return round(self._value or 0.0, 3)
+
+    @property
+    def extra_state_attributes(self):
+        return {
+            "last_reset": self._last_reset.isoformat(),
+            "start_value": self._today_start_value,
+            "last_total": self._last_total,
+        }
+
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+
+        if last_state and last_state.state not in (None, 'unknown', 'unavailable'):
+            try:
+                self._value = float(last_state.state)
+                _LOGGER.info("[Enpal] Restored daily value: %.3f kWh", self._value)
+            except ValueError:
+                self._value = 0.0
+
+            self._today_start_value = self._try_restore_float(last_state.attributes.get("start_value"))
+            self._last_total = self._try_restore_float(last_state.attributes.get("last_total"))
+            last_reset_str = last_state.attributes.get("last_reset")
+            if last_reset_str:
+                try:
+                    self._last_reset = datetime.fromisoformat(last_reset_str).date()
+                except Exception:
+                    self._last_reset = datetime.now().date()
+
+        self._coordinator.async_add_listener(self._handle_coordinator_update)
+
+    def _try_restore_float(self, value):
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _handle_coordinator_update(self):
+        today = datetime.now().date()
+        for sensor in self._coordinator.data:
+            if make_id(sensor["name"]) == self._source_uid:
+                try:
+                    total_kwh = float(sensor["value"])
+                    _LOGGER.debug("[Enpal] Tageswert: Gesamt=%.3f, Start=%.3f", total_kwh, self._today_start_value or 0.0)
+
+                    if self._last_reset != today or self._today_start_value is None:
+                        _LOGGER.info("[Enpal] Neuer Tag erkannt – Tagesstartwert: %.3f", total_kwh)
+                        self._today_start_value = total_kwh
+                        self._last_reset = today
+                        self._value = 0.0
+
+                    self._value = max(total_kwh - self._today_start_value, 0)
+                    self._last_total = total_kwh
+                except Exception as e:
+                    _LOGGER.warning("[Enpal] Fehler bei Tageswert-Berechnung: %s", e)
+                break
+
         self.async_write_ha_state()
 
     @property
