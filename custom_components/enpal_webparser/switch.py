@@ -41,7 +41,7 @@ class EnpalWallboxSwitch(SwitchEntity):
             return
 
         status = status_entity.state.lower()
-        new_state = status == "loading"
+        new_state = status == "charging"
 
         if self._pending_state is not None:
             if self._pending_state == new_state:
