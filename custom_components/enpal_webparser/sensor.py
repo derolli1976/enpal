@@ -358,7 +358,7 @@ class CumulativeEnergySensor(SensorEntity, RestoreEntity):
 class DailyResetFromEntitySensor(SensorEntity, RestoreEntity):
     def __init__(self, hass: HomeAssistant, source_entity_id: str):
         self.hass = hass
-        self._attr_name = "Inverter: Energy produced total (DC)"
+        self._attr_name = "Inverter: Energy produced today (DC)"
         self._attr_unique_id = "daily_energy_produced_dc_kwh"
         self._attr_device_class = "energy"
         self._attr_state_class = "total"
