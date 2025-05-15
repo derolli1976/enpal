@@ -11,6 +11,8 @@
 Diese Home Assistant Integration liest Daten von der lokalen Enpal-Webseite der Solaranlage (z. B. `http://192.168.178.178/deviceMessages`) aus und stellt die Werte als Sensoren in Home Assistant zur Verfügung.  
 Getestet mit der Version 2 der Enpal Box und Solar Rel. 8.46.1-346390 (12.05.2025).
 
+### WICHTIG: Nicht kompatibel mit der Version 1 der Enpal Box 
+
 ---
 
 ## 🔧 Funktionen
@@ -85,7 +87,7 @@ Zur Steuerung einer Enpal Wallbox ist das folgende Add-on erforderlich:
 ## ❓ FAQ & Hilfe
 
 Antworten auf häufige Fragen findest du hier:  
-📘 [FAQ – Häufige Fragen zur Enpal Solar Integration](https://github.com/derolli1976/enpal/wiki/FAQ)
+📘 [FAQ – Häufige Fragen zur Enpal Solar Integration](https://github.com/derolli1976/enpal/wiki)
 
 ---
 
