@@ -24,7 +24,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     hass.data.setdefault(DOMAIN, {})
 
     use_wallbox_addon = entry.options.get("use_wallbox_addon", False)
-    platforms = ["sensor"] + (["button"] if use_wallbox_addon else [])
+    
+    platforms = ["sensor"]
+    if use_wallbox_addon:
+        platforms.extend(["button", "switch", "select"])
 
     hass.data[DOMAIN][entry.entry_id] = {
         "config": entry.data,
