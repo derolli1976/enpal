@@ -11,7 +11,10 @@
 Diese Home Assistant Integration liest Daten von der lokalen Enpal-Webseite der Solaranlage (z. B. `http://192.168.178.178/deviceMessages`) aus und stellt die Werte als Sensoren in Home Assistant zur Verfügung.  
 Getestet mit der Version 2 der Enpal Box und Solar Rel. 8.46.1-346390 (12.05.2025).
 
-### WICHTIG: Nicht kompatibel mit der Version 1 der Enpal Box 
+### WICHTIG: Nicht kompatibel mit allen Enpal Boxen der 1. Version!
+### Nur wenn in Eurem lokalen Netzwerk unter der IP Adresse der Enpal Box eine Webseite ähnlich dieser hier erscheint, besteht die _Chance_, dass das hier funktioniert!
+
+![Enpal Box Webseite](./images/enpal_box_webseite.png)
 
 ---
 
