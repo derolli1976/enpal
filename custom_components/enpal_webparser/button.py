@@ -38,7 +38,7 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
 
 class EnpalWallboxButton(ButtonEntity):
     def __init__(self, hass, name, url, unique_id):
-        self.hass = hass
+        self._hass = hass
         self._attr_name = f"Wallbox {name}"
         self._url = url
         self._attr_unique_id = f"enpal_wallbox_button_{unique_id}"
@@ -57,7 +57,7 @@ class EnpalWallboxButton(ButtonEntity):
     async def async_press(self):
         _LOGGER.info("[Enpal] Button pressed: %s", self._attr_name)
         try:
-            session = async_get_clientsession(self.hass)
+            session = async_get_clientsession(self._hass)
             async with session.post(self._url, timeout=30) as response:
                 if response.status != 200:
                     text = await response.text()
@@ -67,9 +67,15 @@ class EnpalWallboxButton(ButtonEntity):
         except Exception as e:
             _LOGGER.exception("[Enpal] Wallbox request failed: %s", e)
 
-        coordinator = self.hass.data[DOMAIN].get("coordinator")
-        if coordinator:
-            _LOGGER.debug("[Enpal] Triggering coordinator refresh after button press")
-            await coordinator.async_request_refresh()
-        else:
-            _LOGGER.warning("[Enpal] No coordinator found to refresh after button press")
+        await self._hass.services.async_call(
+            "homeassistant", "update_entity",
+            {
+                "entity_id": [
+                    "sensor.wallbox_lademodus",
+                    "sensor.wallbox_status"
+                ]
+            },
+            blocking=True
+        )
+
+
