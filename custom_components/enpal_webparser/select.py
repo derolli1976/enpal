@@ -78,6 +78,13 @@ class EnpalWallboxModeSelect(SelectEntity):
 
             await self._call_wallbox_api(f"/set_{key}")
 
+            await self._hass.services.async_call(
+                "homeassistant",
+                "update_entity",
+                {"entity_id": "sensor.wallbox_lademodus"},
+                blocking=True
+            )
+
         else:
             _LOGGER.warning("Unknown selected option: %s", option)
 
