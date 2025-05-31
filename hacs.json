@@ -2,5 +2,6 @@
   "name": "Enpal Solar",
   "homeassistant": "2023.5.0",
   "render_readme": true,
-  "zip_release": false
+  "zip_release": false,
+  "country": "DE" 
 }
