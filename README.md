@@ -55,16 +55,9 @@ Die Integration kann über die Benutzeroberfläche von Home Assistant konfigurie
 3. Gehe zu **Einstellungen → Geräte & Dienste → Integration hinzufügen** und wähle **Enpal Solar**.
 4. Gib die URL, das Intervall und gewünschte Gruppen an.
 
-### 🧩 Variante 2: HACS (Custom Repository)
+### 🧩 Variante 2: HACS (empfohlen)
 
-1. Öffne HACS in Home Assistant.
-2. Klicke auf **"Integrationen" → "Benutzerdefiniertes Repository hinzufügen"** (oben rechts: 3-Punkte-Menü).
-3. Gib die GitHub-URL dieses Repos ein:  
-   `https://github.com/derolli1976/enpal`
-4. Wähle als Typ **"Integration"**.
-5. Installiere die Integration direkt über HACS.
-6. Starte Home Assistant neu.
-7. Füge die Integration wie gewohnt über das UI hinzu.
+[![hacs_install](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=derolli1976&repository=enpal&category=integration)
 
 ---
 
