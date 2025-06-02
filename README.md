@@ -63,7 +63,6 @@ Diese Integration ist **offiziell in HACS gelistet** – ein manuelles Hinzufüg
 6. Gehe zu **Einstellungen → Geräte & Dienste → Integration hinzufügen**  
 7. Suche nach **Enpal Solar** und folge dem Konfigurationsdialog (z. B. URL, Intervall, Sensorgruppen)
 
-> 💡 **Hinweis:** Installierte Integrationen erscheinen automatisch unter **Einstellungen → Geräte & Dienste**. Auch Updates und Reparaturhinweise werden dort angezeigt.
 
 ---
 
@@ -86,4 +85,15 @@ Zur Steuerung einer Enpal Wallbox wird dieses Add-on benötigt:
 1. Öffne den **Add-on Store** in Home Assistant  
 2. Gehe zum Drei-Punkte-Menü (oben rechts) → **Repositories**  
 3. Füge folgendes Repository hinzu:
+
+---
+
+## ⚠️ Rechtlicher Hinweis
+
+> **Dies ist keine offizielle Integration von Enpal.**  
+> Dieses Projekt steht in **keinerlei Verbindung zur Enpal B.V.**  
+> Es handelt sich um eine **inoffizielle, privat entwickelte Erweiterung**, die auf lokal im Netzwerk bereitgestellten HTML-Daten basiert.
+
+Die Nutzung erfolgt ausdrücklich auf **eigene Verantwortung**.  
+Funktionalität kann durch Änderungen an der Firmware oder Weboberfläche der Enpal-Anlage jederzeit eingeschränkt oder unterbrochen werden.
 
