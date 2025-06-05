@@ -1,15 +1,33 @@
+# pyright: reportIncompatibleVariableOverride=false
+#
+# Home Assistant Custom Component: Enpal Webparser
+#
+# File: __init__.py
+#
+# Description:
+#   Home Assistant integration setup for Enpal Webparser.
+#   Handles initial integration setup, config entry setup, and platform loading/unloading.
+#
+# Author:       Oliver Stock (github.com/derolli1976)
+# License:      MIT
+# Repository:   https://github.com/derolli1976/enpal
+#
+# Compatible with Home Assistant Core 2024.x and later.
+#
+# See README.md for setup and usage instructions.
+#
+
 import logging
 
-from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.helpers.typing import ConfigType
+from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers.typing import ConfigType
 
 from .const import DOMAIN
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
-
 
 _LOGGER = logging.getLogger(__name__)
 
