@@ -39,12 +39,15 @@ from homeassistant.helpers.update_coordinator import (
     UpdateFailed,
 )
 
+from .entity_factory import build_sensor_entity
+
 from .utils import (
     make_id,
     friendly_name,
     get_numeric_value,
     get_class_and_unit,
     normalize_value_and_unit,
+    parse_enpal_html_sensors
 )
 
 from .const import (
@@ -83,54 +86,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             cards = soup.find_all("div", class_="card")
             _LOGGER.debug("[Enpal] Found %d card(s) in HTML", len(cards))
 
-            sensors = []
-            for card in cards:
-                if not isinstance(card, Tag):
-                    continue
-                h2_tag = card.find("h2")
-                if h2_tag is not None:
-                    group = h2_tag.text.strip()
-                else:
-                    continue
-                if group not in groups:
-                    continue
-
-                rows = card.find_all("tr")[1:]
-                for row in rows:
-                    if not isinstance(row, Tag):
-                        continue
-                    cols = row.find_all("td")
-                    if len(cols) >= 2:
-                        raw_name = cols[0].text.strip()
-                        value_raw = cols[1].text.strip()
-                        value_clean = get_numeric_value(value_raw)
-                        unit, device_class = get_class_and_unit(value_raw, UNIT_DEVICE_CLASS_MAP)
-                        value_clean, unit = normalize_value_and_unit(value_raw, unit, device_class, DEFAULT_UNITS)
-
-                        timestamp_str = cols[2].text.strip() if len(cols) > 2 else None
-                        timestamp_iso = None
-                        if timestamp_str:
-                            try:
-                                dt = datetime.strptime(timestamp_str, ENPAL_TIMESTAMP_FORMAT)
-                                timestamp_iso = dt.isoformat()
-                            except ValueError:
-                                timestamp_iso = timestamp_str
-
-                        if device_class and unit is None:
-                            unit = DEFAULT_UNITS.get(device_class)
-
-                        sensor_data = {
-                            "name": friendly_name(group, raw_name),
-                            "value": value_clean,
-                            "unit": unit,
-                            "device_class": device_class,
-                            "enabled": group in groups,
-                            "enpal_last_update": timestamp_iso
-                        }
-                        sensors.append(sensor_data)
-
-            _LOGGER.info("[Enpal] Loaded %d sensor(s) from HTML", len(sensors))
-            last_successful_data = sensors
+            sensors = parse_enpal_html_sensors(html, groups)
+            
             return sensors
 
         except Exception as e:
@@ -163,10 +120,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         _LOGGER.info("[Enpal]   Name: %s -> UID: %s", sensor["name"], make_id(sensor["name"]))
 
     entities = []
-    for sensor in coordinator.data:
-        uid = make_id(sensor["name"])
-        _LOGGER.debug("[Enpal] Adding sensor entity: %s", sensor["name"])
-        entities.append(EnpalSensor(uid, sensor, coordinator))
+    for sensor_dict in coordinator.data:
+        _LOGGER.debug("[Enpal] Adding sensor entity: %s", sensor_dict["name"])
+        entities.append(build_sensor_entity(sensor_dict, coordinator))
+
 
     entities.append(CumulativeEnergySensor(hass, coordinator, "Inverter Power DC Total (Huawei)", interval))
     entities.append(DailyResetFromEntitySensor(hass, "sensor.inverter_energy_produced_total_dc"))
@@ -213,54 +170,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         _LOGGER.debug("[Enpal] Wallbox-Sensoren hinzugefügt")
 
     async_add_entities(entities)
-
-
-class EnpalSensor(SensorEntity):
-    def __init__(self, uid: str, sensor: dict, coordinator: DataUpdateCoordinator):
-        self._attr_name = str(sensor["name"])
-        self._attr_unique_id = uid
-        try:
-            self._attr_native_value = float(sensor["value"])
-        except ValueError:
-            self._attr_native_value = sensor["value"]
-        self._attr_native_unit_of_measurement = sensor["unit"]
-        device_class_str = sensor["device_class"]
-        self._attr_device_class = getattr(SensorDeviceClass, device_class_str.upper(), None) if device_class_str else None
-
-        if self._attr_device_class == SensorDeviceClass.ENERGY:
-            self._attr_state_class = "total_increasing"
-        self._attr_should_poll = False
-        self._attr_enabled_default = sensor["enabled"]
-        self._attr_extra_state_attributes = {
-            "enpal_last_update": sensor.get("enpal_last_update")
-        }
-        self._coordinator = coordinator
-
-    @cached_property
-    def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={(DOMAIN, "enpal_device")},
-            name="Enpal Webgerät",
-            manufacturer="Enpal",
-            model="Webparser",
-        )
-
-    async def async_update(self):
-        await self._coordinator.async_request_refresh()
-
-    async def async_added_to_hass(self):
-        self._coordinator.async_add_listener(self._handle_coordinator_update)
-
-    def _handle_coordinator_update(self):
-        for sensor in self._coordinator.data:
-            if make_id(sensor["name"]) == self._attr_unique_id:
-                try:
-                    self._attr_native_value = float(sensor["value"])
-                except ValueError:
-                    self._attr_native_value = sensor["value"]
-                self._attr_extra_state_attributes["enpal_last_update"] = sensor.get("enpal_last_update")
-                break
-        self.async_write_ha_state()
 
 
 class CumulativeEnergySensor(SensorEntity, RestoreEntity):  
