@@ -50,9 +50,9 @@ class EnpalWallboxModeSelect(SelectEntity):
         self._base_url = DEFAULT_WALLBOX_API_ENDPOINT
 
     
-    @cached_property
+    @property
     def current_option(self) -> str | None:
-        return self._pending_change or self._current_option
+       return self._pending_change or self._current_option or "Nicht verfügbar"
 
     @cached_property
     def device_info(self) -> DeviceInfo:
@@ -65,7 +65,9 @@ class EnpalWallboxModeSelect(SelectEntity):
 
     async def async_update(self):
         mode_entity = self._hass.states.get("sensor.wallbox_lademodus")
-        if not mode_entity:
+        if not mode_entity or mode_entity.state in ("unavailable", "unknown", None):
+            _LOGGER.warning("sensor.wallbox_lademodus not found or unavailable")
+            self._current_option = None
             return
 
         mode = mode_entity.state.lower()

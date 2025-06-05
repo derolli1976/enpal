@@ -49,7 +49,10 @@ class EnpalWallboxSwitch(SwitchEntity):
 
     @property
     def is_on(self):
-        return self._pending_state if self._pending_state is not None else self._is_on
+        if self._pending_state is not None:
+            return self._pending_state
+        return self._is_on if self._is_on is not None else False
+
 
     @cached_property
     def device_info(self) -> DeviceInfo:
@@ -77,8 +80,9 @@ class EnpalWallboxSwitch(SwitchEntity):
 
     async def async_update(self):
         status_entity = self._hass.states.get("sensor.wallbox_status")
-        if not status_entity:
-            _LOGGER.warning("sensor.wallbox_status not found")
+        if not status_entity or status_entity.state in ("unavailable", "unknown", None):
+            _LOGGER.warning("sensor.wallbox_status not found or unavailable")
+            self._is_on = False  
             return
 
         status = status_entity.state.lower()
