@@ -20,8 +20,6 @@
 from datetime import datetime, timedelta
 from functools import cached_property
 import logging
-import re
-
 
 from bs4 import BeautifulSoup, Tag
 
@@ -41,6 +39,14 @@ from homeassistant.helpers.update_coordinator import (
     UpdateFailed,
 )
 
+from .utils import (
+    make_id,
+    friendly_name,
+    get_numeric_value,
+    get_class_and_unit,
+    normalize_value_and_unit,
+)
+
 from .const import (
     DEFAULT_INTERVAL,
     DEFAULT_URL,
@@ -52,40 +58,6 @@ from .const import (
 )
 
 _LOGGER = logging.getLogger(__name__)
-
-def friendly_name(group: str, sensor: str) -> str:
-    group_lower = group.lower()
-    parts = sensor.split('.')
-    label = []
-    skip_next = False
-
-    for i, part in enumerate(parts):
-        if i + 1 < len(parts) and re.fullmatch(r"[A-Z]", parts[i + 1]):
-            label.append(f"{part} ({parts[i + 1]})")
-            skip_next = True
-        elif skip_next:
-            skip_next = False
-        else:
-            label.append(part)
-
-    full_label = ' '.join(label)
-    return full_label if group_lower in full_label.lower() else f"{group}: {full_label}"
-
-def make_id(name: str) -> str:
-    name = name.lower()
-    name = re.sub(r"[^\w]+", "_", name)
-    return name.strip("_")
-
-def get_numeric_value(value: str):
-    match = re.search(r"[-+]?[0-9]*\.?[0-9]+", value.replace(',', '.'))
-    return match.group(0) if match else value
-
-def get_class_and_unit(value: str):
-    value = value.strip()
-    for unit, device_class in UNIT_DEVICE_CLASS_MAP.items():
-        if value.endswith(unit):
-            return unit, device_class
-    return None, None
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
     _LOGGER.info("[Enpal] sensor.py async_setup_entry started")
@@ -132,7 +104,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                         raw_name = cols[0].text.strip()
                         value_raw = cols[1].text.strip()
                         value_clean = get_numeric_value(value_raw)
-                        unit, device_class = get_class_and_unit(value_raw)
+                        unit, device_class = get_class_and_unit(value_raw, UNIT_DEVICE_CLASS_MAP)
+                        value_clean, unit = normalize_value_and_unit(value_raw, unit, device_class, DEFAULT_UNITS)
 
                         timestamp_str = cols[2].text.strip() if len(cols) > 2 else None
                         timestamp_iso = None
@@ -142,13 +115,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                                 timestamp_iso = dt.isoformat()
                             except ValueError:
                                 timestamp_iso = timestamp_str
-
-                        if unit == "Wh":
-                            try:
-                                value_clean = str(round(float(value_clean) / 1000, 3))
-                                unit = "kWh"
-                            except ValueError:
-                                _LOGGER.warning("[Enpal] Unable to convert Wh to kWh for value: %s", value_clean)
 
                         if device_class and unit is None:
                             unit = DEFAULT_UNITS.get(device_class)
@@ -261,7 +227,7 @@ class EnpalSensor(SensorEntity):
         device_class_str = sensor["device_class"]
         self._attr_device_class = getattr(SensorDeviceClass, device_class_str.upper(), None) if device_class_str else None
 
-        if self._attr_device_class == "energy":
+        if self._attr_device_class == SensorDeviceClass.ENERGY:
             self._attr_state_class = "total_increasing"
         self._attr_should_poll = False
         self._attr_enabled_default = sensor["enabled"]
