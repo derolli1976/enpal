@@ -8,6 +8,9 @@
 [![HACS installs](https://img.shields.io/badge/dynamic/json?color=41BDF5&logo=home-assistant&label=integration%20usage&suffix=%20installs&cacheSeconds=15600&url=https://analytics.home-assistant.io/custom_integrations.json&query=$.enpal_webparser.total)](https://github.com/derolli1976/enpal)
 [![GitHub release](https://img.shields.io/github/release/derolli1976/enpal.svg)](https://github.com/derolli1976/enpal/releases)
 [![Pytest](https://github.com/derolli1976/enpal/actions/workflows/tests.yaml/badge.svg)](https://github.com/derolli1976/enpal/actions/workflows/tests.yaml)
+[![CodeQL](https://github.com/derolli1976/enpal/actions/workflows/codeql.yaml/badge.svg)](https://github.com/derolli1976/enpal/actions/workflows/codeql.yaml)
+[![Bandit](https://github.com/derolli1976/enpal/actions/workflows/bandit.yaml/badge.svg)](https://github.com/derolli1976/enpal/actions/workflows/bandit.yaml)
+
 
 [![hacs_install](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=derolli1976&repository=enpal&category=integration)
 
