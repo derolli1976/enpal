@@ -1,8 +1,29 @@
-import logging
+# pyright: reportIncompatibleVariableOverride=false
+#
+# Home Assistant Custom Component: Enpal Webparser
+#
+# File: switch.py
+#
+# Description:
+#   Home Assistant switch platform for Enpal wallbox control.
+#   Allows toggling wallbox charging via Home Assistant and triggers status updates.
+#
+# Author:       Oliver Stock (github.com/derolli1976)
+# License:      MIT
+# Repository:   https://github.com/derolli1976/enpal
+#
+# Compatible with Home Assistant Core 2024.x and later.
+#
+# See README.md for setup and usage instructions.
+#
+
 import asyncio
+from functools import cached_property
+import logging
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.event import async_track_state_change_event
 
 from .const import DOMAIN
@@ -28,16 +49,19 @@ class EnpalWallboxSwitch(SwitchEntity):
 
     @property
     def is_on(self):
-        return self._pending_state if self._pending_state is not None else self._is_on
+        if self._pending_state is not None:
+            return self._pending_state
+        return self._is_on if self._is_on is not None else False
 
-    @property
-    def device_info(self):
-        return {
-            "identifiers": {(DOMAIN, "enpal_device")},
-            "name": "Enpal Webgerät",
-            "manufacturer": "Enpal",
-            "model": "Webparser",
-        }
+
+    @cached_property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={(DOMAIN, "enpal_device")},
+            name="Enpal Webgerät",
+            manufacturer="Enpal",
+            model="Webparser",
+        )
 
     async def async_added_to_hass(self):
         """Automatisch aufgerufen, wenn die Entität registriert wird."""
@@ -56,8 +80,9 @@ class EnpalWallboxSwitch(SwitchEntity):
 
     async def async_update(self):
         status_entity = self._hass.states.get("sensor.wallbox_status")
-        if not status_entity:
-            _LOGGER.warning("sensor.wallbox_status not found")
+        if not status_entity or status_entity.state in ("unavailable", "unknown", None):
+            _LOGGER.warning("sensor.wallbox_status not found or unavailable")
+            self._is_on = False  
             return
 
         status = status_entity.state.lower()

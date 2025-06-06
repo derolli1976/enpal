@@ -1,0 +1,5 @@
+bs4
+homeassistant
+voluptuous
+requests
+

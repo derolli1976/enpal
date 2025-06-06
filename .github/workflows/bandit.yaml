@@ -1,0 +1,26 @@
+name: Python Security Check (Bandit)
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  bandit:
+    name: Run Bandit Security Analysis
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Bandit
+        run: pip install bandit
+
+      - name: Run Bandit
+        run: |
+          bandit -r custom_components/enpal_webparser -ll
