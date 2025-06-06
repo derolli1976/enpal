@@ -7,7 +7,7 @@
 [![hacs_badge](https://img.shields.io/badge/HACS-Default-41BDF5.svg)](https://github.com/hacs/integration)
 [![HACS installs](https://img.shields.io/badge/dynamic/json?color=41BDF5&logo=home-assistant&label=integration%20usage&suffix=%20installs&cacheSeconds=15600&url=https://analytics.home-assistant.io/custom_integrations.json&query=$.enpal_webparser.total)](https://github.com/derolli1976/enpal)
 [![GitHub release](https://img.shields.io/github/release/derolli1976/enpal.svg)](https://github.com/derolli1976/enpal/releases)
-![Pytest](https://github.com/derolli1976/enpal/actions/workflows/test.yaml/badge.svg)
+[![Pytest](https://github.com/derolli1976/enpal/actions/workflows/tests.yaml/badge.svg)](https://github.com/derolli1976/enpal/actions/workflows/tests.yaml)
 
 [![hacs_install](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=derolli1976&repository=enpal&category=integration)
 
