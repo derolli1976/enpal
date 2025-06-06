@@ -1,8 +1,8 @@
 name: Run Pytest Tests
 
 on:
-  push:     # jeder Push, egal welcher Branch
-  pull_request:  # jeder PR, egal von/zu welchem Branch
+  push:
+  pull_request:
 
 jobs:
   test:
@@ -20,9 +20,11 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install -r requirements.txt || true
           pip install pytest
 
+      - name: Set PYTHONPATH
+        run: echo "PYTHONPATH=$PWD" >> $GITHUB_ENV
+
       - name: Run Pytest
-        run: |
-          pytest
+        run: pytest
