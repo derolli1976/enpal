@@ -21,7 +21,7 @@ from datetime import datetime, timedelta
 from functools import cached_property
 import logging
 
-from bs4 import BeautifulSoup, Tag
+from bs4 import BeautifulSoup
 
 from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
@@ -43,19 +43,12 @@ from .entity_factory import build_sensor_entity
 
 from .utils import (
     make_id,
-    friendly_name,
-    get_numeric_value,
-    get_class_and_unit,
-    normalize_value_and_unit,
     parse_enpal_html_sensors
 )
 
 from .const import (
     DEFAULT_INTERVAL,
     DEFAULT_URL,
-    DEFAULT_UNITS,
-    ENPAL_TIMESTAMP_FORMAT,
-    UNIT_DEVICE_CLASS_MAP,
     DEFAULT_WALLBOX_API_ENDPOINT,
     DOMAIN,
 )
@@ -278,7 +271,8 @@ class DailyResetFromEntitySensor(SensorEntity, RestoreEntity):
             except Exception:
                 pass
 
-    def _try_float(self, val):
+    @staticmethod
+    def _try_float(val):
         try:
             return float(val)
         except (TypeError, ValueError):
