@@ -9,7 +9,14 @@
 # To run: pytest custom_components/enpal_webparser/tests/test_entity_factory.py
 #
 
+import pytest
+from datetime import timedelta
+
+from unittest.mock import AsyncMock
+
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.core import HomeAssistant
 from custom_components.enpal_webparser.entity_factory import (
     build_sensor_entity,
     EnpalBaseSensor,
@@ -77,4 +84,51 @@ def test_sensor_device_info():
     assert device_info.get("identifiers") == {("enpal_webparser", "enpal_device")}
     assert device_info.get("manufacturer") == "Enpal"
     assert device_info.get("model") == "Webparser"
+
+@pytest.fixture
+def hass():
+    """Return a mocked hass instance."""
+    hass = AsyncMock(spec=HomeAssistant)
+    return hass
+
+@pytest.fixture
+def mock_sensor_dict():
+    return {
+        "name": "Test Sensor",
+        "value": 123.45,
+        "unit": "kWh",
+        "device_class": "energy",
+        "enpal_last_update": "2024-06-01T12:00:00",
+    }
+
+@pytest.fixture
+def hass_coordinator(hass: HomeAssistant):
+    async def _update_method():
+        return [{
+            "name": "Test Sensor",
+            "value": 987.65,
+            "unit": "kWh",
+            "device_class": "energy",
+            "enpal_last_update": "2024-06-01T12:30:00",
+        }]
+    coordinator = DataUpdateCoordinator(
+        hass,
+        logger=None,
+        name="test",
+        update_method=_update_method,
+        update_interval=timedelta(seconds=30),
+    )
+    return coordinator
+
+@pytest.mark.asyncio
+async def test_build_energy_sensor_full(hass: HomeAssistant, mock_sensor_dict, hass_coordinator):
+    sensor = build_sensor_entity(mock_sensor_dict, hass_coordinator)
+    assert isinstance(sensor, EnpalEnergySensor)
+    assert sensor.name == "Test Sensor"
+    assert sensor.native_value == 123.45
+    assert sensor.native_unit_of_measurement == "kWh"
+    assert sensor.device_class == "energy"
+    assert sensor.state_class == "total_increasing"
+    assert "enpal_last_update" in sensor.extra_state_attributes
+
 

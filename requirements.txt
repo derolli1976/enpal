@@ -2,4 +2,4 @@ bs4
 homeassistant
 voluptuous
 requests
-
+pytest-asyncio>=0.21

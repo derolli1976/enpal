@@ -18,31 +18,39 @@
 #
 
 from functools import cached_property
+
 from homeassistant.components.sensor import SensorEntity, SensorDeviceClass
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, CoordinatorEntity
 from homeassistant.helpers.entity import DeviceInfo
 
 from .utils import make_id
 
-class EnpalBaseSensor(SensorEntity):
-    """Generische Enpal Sensor-Entity, geeignet für die meisten Sensoren."""
+class EnpalBaseSensor(CoordinatorEntity, SensorEntity):
+    """Generic Enpal sensor entity using the update coordinator."""
 
     def __init__(self, sensor: dict, coordinator: DataUpdateCoordinator):
+        super().__init__(coordinator)
+        self._sensor = sensor
         self._attr_name = sensor.get("name")
         self._attr_unique_id = make_id(sensor.get("name", "unknown"))
-        self._attr_native_value = sensor.get("value")
         self._attr_native_unit_of_measurement = sensor.get("unit")
-        # device_class als Enum, falls möglich:
+        self._attr_enabled_default = sensor.get("enabled", True)
+
         device_class = sensor.get("device_class")
         if device_class and hasattr(SensorDeviceClass, device_class.upper()):
             self._attr_device_class = getattr(SensorDeviceClass, device_class.upper())
         else:
             self._attr_device_class = device_class
-        self._attr_enabled_default = sensor.get("enabled", True)
-        self._attr_extra_state_attributes = {
-            "enpal_last_update": sensor.get("enpal_last_update")
+
+    @property
+    def native_value(self):
+        return self._sensor.get("value")
+
+    @property
+    def extra_state_attributes(self):
+        return {
+            "enpal_last_update": self._sensor.get("enpal_last_update")
         }
-        self._coordinator = coordinator
 
     @cached_property
     def device_info(self) -> DeviceInfo:
@@ -53,32 +61,29 @@ class EnpalBaseSensor(SensorEntity):
             "model": "Webparser",
         }
 
-
-    async def async_update(self):
-        await self._coordinator.async_request_refresh()
+    def _handle_coordinator_update(self):
+        for s in self.coordinator.data:
+            if make_id(s.get("name", "")) == self._attr_unique_id:
+                self._sensor = s
+                break
+        self.async_write_ha_state()
 
     async def async_added_to_hass(self):
-        self._coordinator.async_add_listener(self._handle_coordinator_update)
+        await super().async_added_to_hass()
+        self._handle_coordinator_update()
 
-    def _handle_coordinator_update(self):
-        # Hier kannst du das Update-Handling noch anpassen, falls nötig!
-        self.async_write_ha_state()
 
 def build_sensor_entity(sensor: dict, coordinator: DataUpdateCoordinator) -> SensorEntity:
     """
-    Factory-Funktion: Baut die passende SensorEntity.
-    Hier kannst du auch Spezialfälle oder Subklassen einbauen.
+    Factory function: Builds the appropriate sensor entity.
+    Extendable for special cases or subclasses.
     """
-    # Beispiel für Spezialfall: Energiesensor mit zusätzlichem Attribut
     if sensor.get("device_class") == "energy":
         return EnpalEnergySensor(sensor, coordinator)
-    # Weitere Spezialfälle ...
     return EnpalBaseSensor(sensor, coordinator)
 
-# Beispiel für einen spezialisierten Sensor
+
 class EnpalEnergySensor(EnpalBaseSensor):
     def __init__(self, sensor: dict, coordinator: DataUpdateCoordinator):
         super().__init__(sensor, coordinator)
-        self._attr_state_class = "total_increasing"  # Nur für Energie!
-
-    # Hier könntest du noch eigene Properties oder Methoden ergänzen
+        self._attr_state_class = "total_increasing"
