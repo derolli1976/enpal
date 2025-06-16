@@ -24,6 +24,7 @@ from bs4 import BeautifulSoup, Tag
 
 from .const import (
     DEFAULT_UNITS,
+    DEVICE_CLASS_OVERRIDES,
     ENPAL_TIMESTAMP_FORMAT,
     UNIT_DEVICE_CLASS_MAP,
 )
@@ -161,6 +162,11 @@ def parse_card_rows(card: Tag, group: str, groups: List[str]) -> List[Dict[str, 
             "enabled": group in groups,
             "enpal_last_update": timestamp_iso,
         }
+
+        sensor_id = make_id(sensor["name"])
+        if sensor_id in DEVICE_CLASS_OVERRIDES:
+            sensor["device_class"] = DEVICE_CLASS_OVERRIDES[sensor_id]
+
         sensor_list.append(sensor)
 
     return sensor_list
