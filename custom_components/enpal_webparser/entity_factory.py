@@ -24,6 +24,8 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Coor
 from homeassistant.helpers.entity import DeviceInfo
 
 from .utils import make_id
+from .const import ICON_MAP
+
 
 class EnpalBaseSensor(CoordinatorEntity, SensorEntity):
     """Generic Enpal sensor entity using the update coordinator."""
@@ -35,6 +37,11 @@ class EnpalBaseSensor(CoordinatorEntity, SensorEntity):
         self._attr_unique_id = make_id(sensor.get("name", "unknown"))
         self._attr_native_unit_of_measurement = sensor.get("unit")
         self._attr_enabled_default = sensor.get("enabled", True)
+
+        icon_key = make_id(sensor.get("name", ""))
+        if icon_key in ICON_MAP:
+            self._attr_icon = ICON_MAP[icon_key]
+
 
         device_class = sensor.get("device_class")
         if device_class and hasattr(SensorDeviceClass, device_class.upper()):
