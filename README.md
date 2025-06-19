@@ -10,6 +10,7 @@
 [![Pytest](https://github.com/derolli1976/enpal/actions/workflows/tests.yaml/badge.svg)](https://github.com/derolli1976/enpal/actions/workflows/tests.yaml)
 [![CodeQL](https://github.com/derolli1976/enpal/actions/workflows/codeql.yaml/badge.svg)](https://github.com/derolli1976/enpal/actions/workflows/codeql.yaml)
 [![Bandit](https://github.com/derolli1976/enpal/actions/workflows/bandit.yaml/badge.svg)](https://github.com/derolli1976/enpal/actions/workflows/bandit.yaml)
+![Enpal_version](https://img.shields.io/badge/tested%20with%20enpal%20firmware-Solar%20Rel.%208.46.4--355926%20(21.05.2025)-blue)
 
 
 [![hacs_install](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=derolli1976&repository=enpal&category=integration)
@@ -17,9 +18,8 @@
 <a href="https://buymeacoffee.com/derolli1976" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/default-orange.png" alt="Buy Me A Coffee" height="41" width="174"></a>
 
 Diese Home Assistant Integration liest Daten von der lokalen Enpal-Webseite der Solaranlage (z. B. `http://192.168.178.178/deviceMessages`) aus und stellt die Werte als Sensoren in Home Assistant zur Verfügung.  
-Getestet mit Version 2 der Enpal Box und Solar Rel. 8.46.4-355926 (21.05.2025).
 
-### ⚠️ Hinweis: Einige Enpal Boxen der **1. Generation** werden **unterstützt**.  
+### ⚠️ Hinweis: Nur einige Enpal Boxen der **1. Generation** werden **unterstützt**.  
 Entscheidend ist, ob unter der IP-Adresse der Enpal Box im lokalen Netzwerk eine Webseite wie die folgende angezeigt wird:
 
 <p align="left">
@@ -37,7 +37,7 @@ Entscheidend ist, ob unter der IP-Adresse der Enpal Box im lokalen Netzwerk eine
 - Sensoren erscheinen automatisch in Home Assistant
 - Nicht ausgewählte Gruppen werden als deaktivierte Entitäten angelegt
 - Konfiguration vollständig über das Home Assistant UI möglich
-- **NEU**: Experimentelle Wallbox-Steuerung über optionales Add-on
+- **NEU**: Wallbox-Steuerung über optionales Add-on
 
 ---
 
@@ -80,7 +80,7 @@ Diese Integration ist **offiziell in HACS gelistet** – ein manuelles Hinzufüg
 
 ---
 
-## 🚗 Wallbox Add-on (Optional & Experimentell)
+## 🚗 Wallbox Add-on (Optional)
 
 Zur Steuerung einer Enpal Wallbox wird dieses Add-on benötigt:  
 🔗 [https://github.com/derolli1976/enpal-wallbox-addon](https://github.com/derolli1976/enpal-wallbox-addon)
