@@ -10,7 +10,7 @@
 [![Pytest](https://github.com/derolli1976/enpal/actions/workflows/tests.yaml/badge.svg)](https://github.com/derolli1976/enpal/actions/workflows/tests.yaml)
 [![CodeQL](https://github.com/derolli1976/enpal/actions/workflows/codeql.yaml/badge.svg)](https://github.com/derolli1976/enpal/actions/workflows/codeql.yaml)
 [![Bandit](https://github.com/derolli1976/enpal/actions/workflows/bandit.yaml/badge.svg)](https://github.com/derolli1976/enpal/actions/workflows/bandit.yaml)
-![Enpal_version](https://img.shields.io/badge/tested%20with%20enpal%20firmware-Solar%20Rel.%208.46.5--382911%20(19.06.2025)-blue)
+![Enpal_version](https://img.shields.io/badge/tested%20with%20enpal%20firmware-Solar%20Rel.%208.47.1--434761%20(18.08.2025)-blue)
 
 
 [![hacs_install](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=derolli1976&repository=enpal&category=integration)
@@ -18,6 +18,10 @@
 <a href="https://buymeacoffee.com/derolli1976" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/default-orange.png" alt="Buy Me A Coffee" height="41" width="174"></a>
 
 Diese Home Assistant Integration liest Daten von der lokalen Enpal-Webseite der Solaranlage (z. B. `http://192.168.178.178/deviceMessages`) aus und stellt die Werte als Sensoren in Home Assistant zur Verfügung.  
+
+### ⚠️ Hinweis: Mit dem letzten Update seitens Enpal sind manchmal einige Sensoren nicht mehr verfügbar!
+Diese sollten nach und nach wieder erscheinen. Ein Neustart der Anlage und von Homeassistant hilft in vielen Fällen, in anderen Fällen erledigt sich das Problem nach ein paar Tagen von alleine.
+Ich kann auf meiner Seite leider nichts dagegen tun, da ich darauf angewiesen bin, dass die Daten durch Enpal auch zur Verfügung gestellt werden.
 
 ### ⚠️ Hinweis: Nur einige Enpal Boxen der **1. Generation** werden **unterstützt**.  
 Entscheidend ist, ob unter der IP-Adresse der Enpal Box im lokalen Netzwerk eine Webseite wie die folgende angezeigt wird:
