@@ -59,6 +59,7 @@ DEVICE_CLASS_OVERRIDES = {
     "energy_battery_charge_level": "battery",
     "energy_battery_charge_level_unit_1": "battery",
     "energy_battery_charge_level_unit_2": "battery",
+    "energy_battery_charge_level_absolute": "battery",
 }
 
 # --- Wallbox Mode Mapping ---
@@ -213,4 +214,11 @@ ICON_MAP = {
     "voltage_wallbox_connector_1_phase_a": "mdi:transmission-tower",
     "voltage_wallbox_connector_1_phase_b": "mdi:transmission-tower",
     "voltage_wallbox_connector_1_phase_c": "mdi:transmission-tower",
+}
+
+STATE_CLASS_OVERRIDES = {
+    "energy_battery_charge_level": "measurement",
+    "energy_battery_charge_level_unit_1": "measurement",
+    "energy_battery_charge_level_unit_2": "measurement",
+    "energy_battery_charge_level_absolute": "measurement",
 }
