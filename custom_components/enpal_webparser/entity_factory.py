@@ -24,7 +24,7 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, Coor
 from homeassistant.helpers.entity import DeviceInfo
 
 from .utils import make_id
-from .const import ICON_MAP
+from .const import ICON_MAP, STATE_CLASS_OVERRIDES
 
 
 class EnpalBaseSensor(CoordinatorEntity, SensorEntity):
@@ -48,6 +48,11 @@ class EnpalBaseSensor(CoordinatorEntity, SensorEntity):
             self._attr_device_class = getattr(SensorDeviceClass, device_class.upper())
         else:
             self._attr_device_class = device_class
+        
+        # Overrides for state class if specified
+        sensor_id = self._attr_unique_id
+        if sensor_id in STATE_CLASS_OVERRIDES:
+            self._attr_state_class = STATE_CLASS_OVERRIDES[sensor_id]
 
     @property
     def native_value(self):
@@ -93,4 +98,9 @@ def build_sensor_entity(sensor: dict, coordinator: DataUpdateCoordinator) -> Sen
 class EnpalEnergySensor(EnpalBaseSensor):
     def __init__(self, sensor: dict, coordinator: DataUpdateCoordinator):
         super().__init__(sensor, coordinator)
+        # Default: Energy counter is total_increasing
         self._attr_state_class = "total_increasing"
+        # Allow explicit overrides
+        sensor_id = self._attr_unique_id
+        if sensor_id in STATE_CLASS_OVERRIDES:
+            self._attr_state_class = STATE_CLASS_OVERRIDES[sensor_id]
