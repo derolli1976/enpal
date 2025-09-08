@@ -17,6 +17,7 @@
 # See README.md for setup and usage instructions.
 #
 
+import asyncio
 import logging
 from functools import cached_property
 
@@ -98,6 +99,9 @@ class EnpalWallboxModeSelect(SelectEntity):
             self.async_write_ha_state()
 
             await self._call_wallbox_api(f"/set_{key}")
+
+            # Wait a moment to allow the wallbox to process the change
+            await asyncio.sleep(2)
 
             await self._hass.services.async_call(
                 "homeassistant",
