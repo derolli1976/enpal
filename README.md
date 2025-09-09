@@ -10,7 +10,7 @@
 [![Pytest](https://github.com/derolli1976/enpal/actions/workflows/tests.yaml/badge.svg)](https://github.com/derolli1976/enpal/actions/workflows/tests.yaml)
 [![CodeQL](https://github.com/derolli1976/enpal/actions/workflows/codeql.yaml/badge.svg)](https://github.com/derolli1976/enpal/actions/workflows/codeql.yaml)
 [![Bandit](https://github.com/derolli1976/enpal/actions/workflows/bandit.yaml/badge.svg)](https://github.com/derolli1976/enpal/actions/workflows/bandit.yaml)
-![Enpal_version](https://img.shields.io/badge/tested%20with%20enpal%20firmware-Solar%20Rel.%208.47.1--434761%20(18.08.2025)-blue)
+![Enpal_version](https://img.shields.io/badge/tested%20with%20enpal%20firmware-Solar%20Rel.%208.47.2--443176%20(28.08.2025)-blue)
 
 
 [![hacs_install](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=derolli1976&repository=enpal&category=integration)
