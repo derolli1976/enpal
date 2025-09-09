@@ -118,10 +118,10 @@ class EnpalWallboxSwitch(SwitchEntity):
                 else:
                     _LOGGER.debug("Wallbox API call success: %s", url)
 
-                    # Kurze Verzögerung für Übernahme des Status
+                    # Short wait to allow wallbox to process the change
                     await asyncio.sleep(2)
 
-                    # Sensoren aktiv aktualisieren
+                    # Get new status after command
                     await self._hass.services.async_call(
                         "homeassistant", "update_entity",
                         {

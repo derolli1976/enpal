@@ -17,6 +17,7 @@
 # See README.md for setup and usage instructions.
 #
 
+import asyncio
 from functools import cached_property
 import logging
 
@@ -90,6 +91,9 @@ class EnpalWallboxButton(ButtonEntity):
                     _LOGGER.info("[Enpal] Wallbox command successful: %s", self._url)
         except Exception as e:
             _LOGGER.exception("[Enpal] Wallbox request failed: %s", e)
+
+        # Wait a moment to allow the wallbox to process the change
+        await asyncio.sleep(2)
 
         await self._hass.services.async_call(
             "homeassistant",

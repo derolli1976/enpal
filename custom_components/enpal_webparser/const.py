@@ -22,6 +22,7 @@ DOMAIN = "enpal_webparser"
 # --- Default Connection Settings ---
 DEFAULT_URL = "http://192.168.178.178/deviceMessages"
 DEFAULT_INTERVAL = 60
+
 DEFAULT_GROUPS = [
     "Wallbox",
     "Battery",
@@ -30,6 +31,7 @@ DEFAULT_GROUPS = [
     "IoTEdgeDevice",
     "PowerSensor",
 ]
+
 DEFAULT_USE_WALLBOX_ADDON = False
 DEFAULT_WALLBOX_API_ENDPOINT = "http://localhost:36725/wallbox"
 
@@ -62,6 +64,13 @@ DEVICE_CLASS_OVERRIDES = {
     "energy_battery_charge_level_absolute": "battery",
 }
 
+STATE_CLASS_OVERRIDES = {
+    "energy_battery_charge_level": "measurement",
+    "energy_battery_charge_level_unit_1": "measurement",
+    "energy_battery_charge_level_unit_2": "measurement",
+    "energy_battery_charge_level_absolute": "measurement",
+}
+
 # --- Wallbox Mode Mapping ---
 WALLBOX_MODE_MAP = {
     "eco": "Eco",
@@ -71,7 +80,6 @@ WALLBOX_MODE_MAP = {
 
 # --- Date/Time Formats ---
 ENPAL_TIMESTAMP_FORMAT = "%m/%d/%Y %H:%M:%S"
-
 
 ICON_MAP = {
     # IoT Edge Device
@@ -216,9 +224,3 @@ ICON_MAP = {
     "voltage_wallbox_connector_1_phase_c": "mdi:transmission-tower",
 }
 
-STATE_CLASS_OVERRIDES = {
-    "energy_battery_charge_level": "measurement",
-    "energy_battery_charge_level_unit_1": "measurement",
-    "energy_battery_charge_level_unit_2": "measurement",
-    "energy_battery_charge_level_absolute": "measurement",
-}
