@@ -3,16 +3,14 @@
     "step": {
       "mode": {
         "title": "Setup Method",
-        "description": "{info}",
+        "description": "Choose how you want to configure the Enpal Box.",
         "data": {
-          "mode": "Setup method",
-          "scan": "Automatic discovery – scan your local network for an Enpal Box",
-          "manual": "Manual configuration – enter the IP address yourself"
+          "mode": "Setup method"
         }
       },
       "manual": {
         "title": "Manual Configuration",
-        "description": "Configure your settings manually",
+        "description": "Configure your settings manually.",
         "data": {
           "url": "URL / IP address of the Enpal Box",
           "interval": "Polling interval (in seconds) – Intervals below 60 seconds are not recommended!",
@@ -25,13 +23,21 @@
       "invalid_format": "Invalid URL – it must start with http:// and contain a valid IP address or hostname.",
       "unreachable": "The URL could not be reached – please check the connection and address.",
       "wallbox_unreachable": "The Wallbox API is not reachable. Make sure the add-on is running and accessible! Test: http://Home-Assistant-IP-ADDRESS:36725/wallbox/status"
+    },
+    "selector": {
+      "setup_method": {
+        "options": {
+          "scan": "Automatic discovery – scan your local network for an Enpal Box",
+          "manual": "Manual configuration – enter the IP address yourself"
+        }
+      }
     }
   },
   "options": {
     "step": {
       "init": {
         "title": "Adjust Options",
-        "description": "Here you can configure additional settings",
+        "description": "Here you can configure additional settings.",
         "data": {
           "url": "URL / IP address of the Enpal Box",
           "interval": "Polling interval (in seconds) – Intervals below 60 seconds are not recommended!",

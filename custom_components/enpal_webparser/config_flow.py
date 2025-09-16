@@ -10,6 +10,7 @@ from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers import selector as sel
 
 from .const import (
     DEFAULT_GROUPS,
@@ -123,12 +124,36 @@ class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return await self.async_step_mode(user_input)
 
     async def async_step_mode(self, user_input=None):
+        """Step: Auswahl zwischen automatischer Suche und manueller IP-Eingabe."""
+
+        # Sprechende Labels (DE/EN); interne Values bleiben neutral
+        labels_de = {
+            "scan_auto": "Automatische Suche – lokales Netzwerk nach Enpal Box durchsuchen (empfohlen)",
+            "manual_ip": "Manuelle IP-Eingabe – Adresse selbst angeben",
+        }
+        labels_en = {
+            "scan_auto": "Automatic discovery – scan the local network for the Enpal Box (recommended)",
+            "manual_ip": "Manual IP entry – provide the address yourself",
+        }
+
+        # Grobe Spracherkennung (Backend-Systemsprache); funktioniert offline & ohne UI-Session
+        lang = (self.hass.config.language or "en").lower()
+        lbl = labels_de if lang.startswith("de") else labels_en
+
+        # Bilingualer Beschreibungstext als Fallback, falls das Frontend mal die Sprache mischt
         description = (
-            "Automatic discovery fills in the IP; or choose manual entry."
+            "Automatische Suche füllt die IP automatisch aus; alternativ manuelle IP-Eingabe. / "
+            "Automatic discovery prefills the IP; alternatively choose manual IP entry."
         )
+
         if user_input is None:
+            # Mapping: Anzeige-Label -> interner Wert
+            options = {
+                lbl["scan_auto"]: "scan_auto",
+                lbl["manual_ip"]: "manual_ip",
+            }
             schema = vol.Schema({
-                vol.Required("mode", default="scan"): vol.In(["scan", "manual"])
+                vol.Required("mode", default="scan_auto"): vol.In(options)
             })
             return self.async_show_form(
                 step_id="mode",
@@ -137,10 +162,19 @@ class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors={},
             )
 
-        # Wert ("scan" oder "manual") kommt immer neutral als Value!
-        if user_input["mode"] == "manual":
+        # Ergebnis sicher auswerten: normal kommt der interne Value zurück
+        selection = user_input.get("mode")
+
+        # Falls ein älteres Frontend doch das Label zurückgibt, fangen wir das ab:
+        if selection in (lbl["manual_ip"], labels_de["manual_ip"], labels_en["manual_ip"]):
+            selection = "manual_ip"
+        if selection in (lbl["scan_auto"], labels_de["scan_auto"], labels_en["scan_auto"]):
+            selection = "scan_auto"
+
+        if selection == "manual_ip":
             return await self.async_step_manual()
         return await self.async_step_discovery()
+
 
     async def async_step_discovery(self, user_input=None):
         _LOGGER.debug("[Enpal] Starting automatic discovery")
