@@ -154,12 +154,12 @@ class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @staticmethod
     @callback
     def async_get_options_flow(config_entry):
-        return EnpalOptionsFlowHandler(config_entry)
+        return EnpalOptionsFlowHandler()
 
 
 class EnpalOptionsFlowHandler(config_entries.OptionsFlow):
     def __init__(self, config_entry):
-        self.config_entry = config_entry
+        pass
 
     async def async_step_init(self, user_input=None):
         _LOGGER.info("[Enpal] OptionsFlow started")
