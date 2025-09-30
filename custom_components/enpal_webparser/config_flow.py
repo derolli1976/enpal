@@ -68,6 +68,7 @@ async def validate_enpal_url(hass, url: str) -> bool:
         _LOGGER.warning("[Enpal] URL not reachable: %s", e)
         return False
 
+
 async def validate_wallbox_api(hass) -> bool:
     url = f"{DEFAULT_WALLBOX_API_ENDPOINT}/status"
     try:
@@ -94,16 +95,20 @@ def get_default_config(options: dict[str, Any] | None = None) -> dict[str, Any]:
         "use_wallbox_addon": src.get("use_wallbox_addon", DEFAULT_USE_WALLBOX_ADDON),
     }
 
+
 def get_form_schema(config: dict[str, Any]) -> vol.Schema:
-    return vol.Schema({
-        vol.Required("url", default=cast(Any, config["url"])): str,
-        vol.Required("interval", default=cast(Any, config["interval"])): int,
-        vol.Optional("groups", default=cast(Any, config["groups"])): cv.multi_select(DEFAULT_GROUPS),
-        vol.Optional("use_wallbox_addon", default=cast(Any, config["use_wallbox_addon"])): bool,
-    })
+    return vol.Schema(
+        {
+            vol.Required("url", default=cast(Any, config["url"])): str,
+            vol.Required("interval", default=cast(Any, config["interval"])): int,
+            vol.Optional("groups", default=cast(Any, config["groups"])): cv.multi_select(DEFAULT_GROUPS),
+            vol.Optional("use_wallbox_addon", default=cast(Any, config["use_wallbox_addon"])): bool,
+        }
+    )
+
 
 async def process_user_input(hass, user_input: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, str]]:
-    errors = {}
+    errors: dict[str, str] = {}
     url_input = user_input["url"]
     url_checked, error = sanitize_url(url_input)
 
@@ -132,7 +137,7 @@ class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     async def async_step_user(self, user_input=None):
         _LOGGER.info("[Enpal] Config flow started")
         config = get_default_config()
-        errors = {}
+        errors: dict[str, str] = {}
 
         if user_input is not None:
             _LOGGER.debug("[Enpal] User input: %s", user_input)
@@ -159,12 +164,12 @@ class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
 
 class EnpalOptionsFlowHandler(config_entries.OptionsFlow):
     def __init__(self, config_entry):
-        self.config_entry = config_entry
+        self._config_entry = config_entry
 
     async def async_step_init(self, user_input=None):
         _LOGGER.info("[Enpal] OptionsFlow started")
-        config = get_default_config(dict(self.config_entry.options))
-        errors = {}
+        config = get_default_config(dict(self._config_entry.options))
+        errors: dict[str, str] = {}
 
         if user_input:
             _LOGGER.debug("[Enpal] OptionsFlow input: %s", user_input)
