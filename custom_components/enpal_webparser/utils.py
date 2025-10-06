@@ -38,6 +38,11 @@ def make_id(name: str) -> str:
     return name.strip("_")
 
 
+def is_strict_number(s: str) -> bool:
+    s2 = s.strip().replace(',', '.')
+    return bool(re.fullmatch(r'[-+]?\d+(\.\d+)?', s2))
+
+
 def friendly_name(group: str, sensor: str) -> str:
     """Format a friendly sensor name with group context."""
     group_lower = group.lower()
@@ -88,10 +93,22 @@ def normalize_value_and_unit(
       - Fallback to default unit if unit is missing but device_class is known.
     Returns: value (str), unit (str or None)
     """
+
+    # determine if the context is suggesting a numeric value
+    numeric_device_classes = {
+        "energy", "power", "voltage", "current", "temperature",
+        "frequency", "battery", "humidity", "pressure"
+    }
+    numeric_context = (unit is not None) or (device_class in numeric_device_classes) or is_strict_number(value_raw)
+
+    if not numeric_context:
+        # not a numeric context, return raw value and no unit
+        return value_raw, None
+
     value_clean = get_numeric_value(value_raw)
     unit_out = unit
 
-    # Wh zu kWh konvertieren
+    # convert Wh to kWh if applicable
     if unit == "Wh":
         try:
             value_clean = str(round(float(value_clean) / 1000, 3))
@@ -99,7 +116,7 @@ def normalize_value_and_unit(
         except ValueError:
             pass
 
-    # Fallback: Wenn device_class bekannt, aber unit fehlt
+    # fallback to default unit if missing
     if device_class and not unit_out:
         unit_out = default_units.get(device_class)
 
@@ -110,7 +127,7 @@ def parse_enpal_html_sensors(
     html: str,
     groups: List[str]
 ) -> List[Dict[str, Any]]:
-    """Parst Enpal HTML und liefert Sensor-Data-Listen für Home Assistant."""
+    """parsing the html content and extracting sensor data."""
     soup = BeautifulSoup(html, 'html.parser')
     sensors = []
 
@@ -128,14 +145,14 @@ def parse_enpal_html_sensors(
 
 
 def extract_group_from_card(card: Tag) -> Optional[str]:
-    """Liest die Gruppenüberschrift (h2) aus einer Card."""
+    """Reads the group name from a Card header (h2)."""
     h2_tag = card.find("h2")
     return h2_tag.text.strip() if h2_tag else None
 
 
 def parse_card_rows(card: Tag, group: str, groups: List[str]) -> List[Dict[str, Any]]:
-    """Extrahiert Sensorsätze aus einer Card-Tabelle."""
-    rows = card.find_all("tr")[1:]  # erste Zeile = Header
+    """Extracts sensors from a group."""
+    rows = card.find_all("tr")[1:]  # assume first row == header
     sensor_list = []
 
     for row in rows:
@@ -173,7 +190,7 @@ def parse_card_rows(card: Tag, group: str, groups: List[str]) -> List[Dict[str, 
 
 
 def parse_timestamp(raw: Optional[str]) -> Optional[str]:
-    """Parst einen Enpal-Timestamp (z. B. 06.06.2025 08:42) ins ISO-Format."""
+    """Converts a timestamp (i.g. 06.06.2025 08:42) to ISO-Format."""
     if not raw:
         return None
     try:
