@@ -49,7 +49,19 @@ class EnpalBaseSensor(CoordinatorEntity, SensorEntity):
         else:
             self._attr_device_class = device_class
         
-        # Overrides for state class if specified
+        # allow explicit state_class from sensor dict
+        self._attr_state_class = self._sensor.get("state_class")
+
+        # measurement state class for numeric sensors if not explicitly set
+        numeric_device_classes = {
+            "power", "voltage", "current", "temperature", "frequency",
+            "battery", "humidity", "pressure"
+        }
+        if self._attr_state_class is None:
+            if device_class in numeric_device_classes or self._attr_native_unit_of_measurement in {"W","kW","V","A","Hz","°C","%"}:
+                self._attr_state_class = "measurement"
+
+        # custom overrides for state class if specified
         sensor_id = self._attr_unique_id
         if sensor_id in STATE_CLASS_OVERRIDES:
             self._attr_state_class = STATE_CLASS_OVERRIDES[sensor_id]
