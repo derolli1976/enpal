@@ -54,6 +54,7 @@ async def validate_enpal_url(hass, url: str) -> bool:
 
 
 
+
 async def validate_wallbox_api(hass) -> bool:
     url = f"{DEFAULT_WALLBOX_API_ENDPOINT}/status"
     try:
@@ -79,6 +80,7 @@ def get_default_config(options: dict[str, Any] | None = None) -> dict[str, Any]:
 
 
 
+
 def get_form_schema(config: dict[str, Any]) -> vol.Schema:
     return vol.Schema(
         {
@@ -94,11 +96,11 @@ def get_form_schema(config: dict[str, Any]) -> vol.Schema:
     )
 
 
-async def process_user_input(hass, user_input: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, str]]:
-    errors: dict[str, str] = {}
-    url_input = user_input["url"]
-    url_checked, error = sanitize_url(url_input)
-
+async def process_user_input(
+    hass, user_input: dict[str, Any]
+) -> tuple[dict[str, Any] | None, dict[str, str]]:
+    errors: dict[str, str]: dict[str, str] = {}
+    url_checked, error = sanitize_url(user_input.get("url", ""))
     if not error and not await validate_enpal_url(hass, url_checked):
         error = "unreachable"
     if error:
@@ -215,9 +217,8 @@ class EnpalOptionsFlowHandler(config_entries.OptionsFlow):
         self._config_entry = config_entry
 
     async def async_step_init(self, user_input=None):
-        _LOGGER.info("[Enpal] OptionsFlow started")
         config = get_default_config(dict(self._config_entry.options))
-        errors: dict[str, str] = {}
+        errors: dict[str, str]: dict[str, str] = {}
 
         if user_input is not None:
             result, errors = await process_user_input(self.hass, user_input)
