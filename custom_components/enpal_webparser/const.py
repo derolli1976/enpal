@@ -69,6 +69,7 @@ STATE_CLASS_OVERRIDES = {
     "energy_battery_charge_level_unit_1": "measurement",
     "energy_battery_charge_level_unit_2": "measurement",
     "energy_battery_charge_level_absolute": "measurement",
+    "energy_battery_charge_load": "measurement",
 }
 
 # --- Wallbox Mode Mapping ---
