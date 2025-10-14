@@ -62,6 +62,7 @@ DEVICE_CLASS_OVERRIDES = {
     "energy_battery_charge_level_unit_1": "battery",
     "energy_battery_charge_level_unit_2": "battery",
     "energy_battery_charge_level_absolute": "battery",
+    "energy_battery_charge_load": "battery",
 }
 
 STATE_CLASS_OVERRIDES = {
