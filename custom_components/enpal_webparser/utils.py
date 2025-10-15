@@ -16,6 +16,7 @@
 # See README.md for setup and usage instructions.
 #
 
+import logging
 import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
@@ -29,6 +30,94 @@ from .const import (
     UNIT_DEVICE_CLASS_MAP,
 )
 
+_LOGGER = logging.getLogger(__name__)
+
+# --- Inverter System State Bit-Definitionen ---
+INV_BITS = [
+    (0, "Standby"),
+    (1, "Grid-connected"),
+    (2, "Grid-connected normally"),
+    (3, "Grid derating (power rationing)"),
+    (4, "Grid derating (internal cause)"),
+    (5, "Normal stop"),
+    (6, "Stop due to faults"),
+    (7, "Stop due to power rationing"),
+    (8, "Shutdown"),
+    (9, "Spot check"),
+]
+
+# Used to detect and parse the inverter system state string.
+INV_STATE_RE = re.compile(
+    r"(?:State\s*)?Decimal\s*[:=]\s*(\d+)\s*Bits\s*[:=]\s*([01]{2,})",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def expand_inverter_system_state(group: str, raw_text: str, timestamp_iso: Optional[str]) -> List[Dict[str, Any]]:
+    """
+    Zerlegt den langen 'System State'-String in mehrere, kurze Sensoren.
+    Nutzt das ISO-Timestamp der Originalzeile.
+    """
+    out: List[Dict[str, Any]] = []
+    m = INV_STATE_RE.search(raw_text or "")
+    if not m:
+        # Leave a compact version if regex not matched to keep sensor available.
+        compact = (raw_text or "")[:240]
+        out.append({
+            "name": friendly_name(group, "System state (compact)"),
+            "value": compact,
+            "unit": None,
+            "device_class": None,
+            "enabled": True,
+            "enpal_last_update": timestamp_iso,
+        })
+        _LOGGER.debug("[Enpal] INV split: regex not matched, created compact sensor only (group=%s)", group)
+        return out
+
+    dec = m.group(1)
+    bitstr = m.group(2).strip()
+
+    # Decimals as separate sensor
+    out.append({
+        "name": friendly_name(group, "System state decimal"),
+        "value": dec,
+        "unit": None,
+        "device_class": None,
+        "enabled": True,
+        "enpal_last_update": timestamp_iso,
+    })
+
+    # Flags as summary sensor
+    set_flags: List[str] = []
+    # LSB right: idx 0 = right border
+    for idx, label in INV_BITS:
+        active = (idx < len(bitstr)) and (bitstr[-(idx + 1)] == "1")
+        if active:
+            set_flags.append(label)
+    summary = ", ".join(set_flags) if set_flags else "None"
+    out.append({
+        "name": friendly_name(group, "System state flags"),
+        "value": summary[:240],
+        "unit": None,
+        "device_class": None,
+        "enabled": True,
+        "enpal_last_update": timestamp_iso,
+    })
+
+    # Ech individual flag as separate sensor
+    for idx, label in INV_BITS:
+        active = (idx < len(bitstr)) and (bitstr[-(idx + 1)] == "1")
+        out.append({
+            "name": friendly_name(group, f"System state: {label}"),
+            "value": "on" if active else "off",
+            "unit": None,
+            "device_class": None,  # no binary_sensor here, just a regular sensor with on/off
+            "enabled": True,
+            "enpal_last_update": timestamp_iso,
+        })
+
+    _LOGGER.debug("[Enpal] INV split created %d sensors for group=%s", len(out), group)
+    return out
 
 
 def make_id(name: str) -> str:
@@ -47,7 +136,7 @@ def friendly_name(group: str, sensor: str) -> str:
     """Format a friendly sensor name with group context."""
     group_lower = group.lower()
     parts = sensor.split('.')
-    label = []
+    label: List[str] = []
     skip_next = False
 
     for i, part in enumerate(parts):
@@ -129,7 +218,7 @@ def parse_enpal_html_sensors(
 ) -> List[Dict[str, Any]]:
     """parsing the html content and extracting sensor data."""
     soup = BeautifulSoup(html, 'html.parser')
-    sensors = []
+    sensors: List[Dict[str, Any]] = []
 
     for card in soup.find_all("div", class_="card"):
         if not isinstance(card, Tag):
@@ -153,7 +242,7 @@ def extract_group_from_card(card: Tag) -> Optional[str]:
 def parse_card_rows(card: Tag, group: str, groups: List[str]) -> List[Dict[str, Any]]:
     """Extracts sensors from a group."""
     rows = card.find_all("tr")[1:]  # assume first row == header
-    sensor_list = []
+    sensor_list: List[Dict[str, Any]] = []
 
     for row in rows:
         if not isinstance(row, Tag):
@@ -171,7 +260,7 @@ def parse_card_rows(card: Tag, group: str, groups: List[str]) -> List[Dict[str, 
         value_clean, unit = normalize_value_and_unit(value_raw, unit, device_class, DEFAULT_UNITS)
         timestamp_iso = parse_timestamp(timestamp_str)
 
-        sensor = {
+        sensor: Dict[str, Any] = {
             "name": friendly_name(group, raw_name),
             "value": value_clean,
             "unit": unit,
@@ -183,6 +272,36 @@ def parse_card_rows(card: Tag, group: str, groups: List[str]) -> List[Dict[str, 
         sensor_id = make_id(sensor["name"])
         if sensor_id in DEVICE_CLASS_OVERRIDES:
             sensor["device_class"] = DEVICE_CLASS_OVERRIDES[sensor_id]
+
+        # Trigger if the raw value matches the bit pattern (Regex) OR
+        # if it's very long and contains "Bits". Works independent of sensor name/ID.
+        should_expand = False
+        try:
+            if isinstance(value_raw, str):
+                if INV_STATE_RE.search(value_raw):
+                    should_expand = True
+                elif len(value_raw) > 200 and "Bits" in value_raw:
+                    should_expand = True
+        except Exception as ex:
+            _LOGGER.debug("[Enpal] INV expand check failed: %s", ex)
+
+        if should_expand:
+            expanded = expand_inverter_system_state(group, value_raw, timestamp_iso)
+
+            # Keep the original sensor: truncate its value so it's valid and retains its unique_id for compatibility.
+            sensor["value"] = (value_raw or "")[:240]
+            sensor_list.append(sensor)
+
+            # Add the new split sensors (if any)
+            if expanded:
+                sensor_list.extend(expanded)
+                _LOGGER.info(
+                    "[Enpal] Expanded inverter state into %d sensors (group=%s, base=%s)",
+                    len(expanded), group, raw_name
+                )
+            else:
+                _LOGGER.debug("[Enpal] INV expand matched, but produced no extra sensors (group=%s)", group)
+            continue
 
         sensor_list.append(sensor)
 
