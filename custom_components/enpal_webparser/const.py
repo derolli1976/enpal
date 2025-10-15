@@ -224,5 +224,19 @@ ICON_MAP = {
     "voltage_wallbox_connector_1_phase_a": "mdi:transmission-tower",
     "voltage_wallbox_connector_1_phase_b": "mdi:transmission-tower",
     "voltage_wallbox_connector_1_phase_c": "mdi:transmission-tower",
+
+    # Inverter System State bits
+    "inverter_system_state_decimal": "mdi:numeric",
+    "inverter_system_state_flags": "mdi:state-machine",
+    "inverter_system_state_standby": "mdi:pause-circle",
+    "inverter_system_state_grid_connected": "mdi:transmission-tower",
+    "inverter_system_state_grid_connected_normally": "mdi:check-circle",
+    "inverter_system_state_grid_derating_power_rationing": "mdi:gauge-low",
+    "inverter_system_state_grid_derating_internal_cause": "mdi:gauge-low",
+    "inverter_system_state_normal_stop": "mdi:stop-circle",
+    "inverter_system_state_stop_due_to_faults": "mdi:alert-circle",
+    "inverter_system_state_stop_due_to_power_rationing": "mdi:flash-off",
+    "inverter_system_state_shutdown": "mdi:power",
+    "inverter_system_state_spot_check": "mdi:magnify",
 }
 
