@@ -55,8 +55,7 @@ INV_STATE_RE = re.compile(
 
 def expand_inverter_system_state(group: str, raw_text: str, timestamp_iso: Optional[str]) -> List[Dict[str, Any]]:
     """
-    Zerlegt den langen 'System State'-String in mehrere, kurze Sensoren.
-    Nutzt das ISO-Timestamp der Originalzeile.
+    Builds multiple sensors from 'system_state' binary sensor.
     """
     out: List[Dict[str, Any]] = []
     m = INV_STATE_RE.search(raw_text or "")
