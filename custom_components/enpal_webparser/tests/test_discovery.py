@@ -59,11 +59,11 @@ async def test_check_enpal_device_valid():
     # Mock Home Assistant and HTTP session
     hass = MagicMock()
     
-    # Mock HTML response with Enpal markers
+    # Mock HTML response with Enpal markers (updated to match actual Enpal device HTML)
     mock_response = MagicMock()
     mock_response.status = 200
     mock_response.text = MagicMock(
-        return_value='<div class="card"><h2>Inverter</h2><table></table></div>'
+        return_value='<html><h1 class="m-3">Device Messages</h1><div class="card"><h2>Inverter</h2><table></table></div></html>'
     )
     
     mock_session = MagicMock()
