@@ -41,6 +41,7 @@ from homeassistant.helpers.update_coordinator import (
 
 from .entity_factory import build_sensor_entity
 
+from .wallbox_api import WallboxApiClient
 from .utils import (
     make_id,
     parse_enpal_html_sensors
@@ -49,7 +50,6 @@ from .utils import (
 from .const import (
     DEFAULT_INTERVAL,
     DEFAULT_URL,
-    DEFAULT_WALLBOX_API_ENDPOINT,
     DOMAIN,
 )
 
@@ -122,22 +122,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     entities.append(DailyResetFromEntitySensor(hass, "sensor.inverter_energy_produced_total_dc"))
 
     if entry.options.get("use_wallbox_addon", False):
-        wallbox_url = f"{DEFAULT_WALLBOX_API_ENDPOINT}/status"
-        _LOGGER.info("[Enpal] Wallbox add-on enabled, URL: %s", wallbox_url)
+        _LOGGER.info("[Enpal] Wallbox add-on enabled, setting up coordinator")
 
+        api_client = WallboxApiClient(hass)
         wallbox_data = {}
 
         async def async_wallbox_update():
             nonlocal wallbox_data
             try:
-                session = async_get_clientsession(hass)
-                async with session.get(wallbox_url, timeout=10) as resp:
-                    if resp.status != 200:
-                        raise Exception(f"Wallbox API Error: {resp.status}")
-                    data = await resp.json()
-                    _LOGGER.debug("[Enpal] Wallbox status data: %s", data)
-                    wallbox_data = data
-                    return data
+                data = await api_client.get_status()
+                if data is None:
+                    raise Exception("Wallbox API returned None")
+                
+                _LOGGER.debug("[Enpal] Wallbox status data: %s", data)
+                wallbox_data = data
+                return data
             except Exception as e:
                 if wallbox_data:
                     _LOGGER.warning("[Enpal] Wallbox update failed - using last known data: %s", e)

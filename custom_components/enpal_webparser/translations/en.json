@@ -2,10 +2,30 @@
   "config": {
     "step": {
       "user": {
-        "title": "Initial Configuration",
-        "description": "Configure your settings here",
+        "title": "Setup Enpal Solar Integration",
+        "description": "Choose how you want to set up your Enpal solar system.\n\nNote: Auto-discovery will scan your network and may take 1-2 minutes. Please be patient during the scan.",
         "data": {
-          "url": "URL / IP address of the Enpal Box",
+          "setup_mode": "Setup method"
+        }
+      },
+      "discovery": {
+        "title": "Discovered Enpal Devices",
+        "description": "Found {discovered_count} device(s) on your network. Select your device:",
+        "data": {
+          "discovered_device": "Select Enpal device"
+        }
+      },
+      "manual": {
+        "title": "Manual Setup",
+        "description": "Enter the URL of your Enpal device's web interface",
+        "data": {
+          "url": "URL / IP address of the Enpal Box"
+        }
+      },
+      "configure": {
+        "title": "Configure Enpal Integration",
+        "description": "Configure settings for device at: {url}",
+        "data": {
           "interval": "Polling interval (in seconds) - Intervals below 60 seconds are not recommended!",
           "groups": "Select sensor groups",
           "use_wallbox_addon": "Use Wallbox add-on (EXPERIMENTAL!) - The add-on must be installed and configured beforehand - https://github.com/derolli1976/enpal-wallbox-addon - only supported on Home Assistant OS or Supervisor installations!"
@@ -15,7 +35,11 @@
     "error": {
       "invalid_format": "Invalid URL - it must start with http:// and contain a valid IP address or hostname.",
       "unreachable": "The URL could not be reached - please check the connection and address.",
-      "wallbox_unreachable": "The Wallbox API is not reachable. Make sure the add-on is running and accessible! Test: http://Home-Assistant-IP-ADDRESS:36725/wallbox/status"
+      "wallbox_unreachable": "The Wallbox API is not reachable. Make sure the add-on is running and accessible! Test: http://Home-Assistant-IP-ADDRESS:36725/wallbox/status",
+      "no_devices_found": "No Enpal devices found on your network. Please use manual setup."
+    },
+    "abort": {
+      "already_configured": "This device is already configured"
     }
   },
   "options": {

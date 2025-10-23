@@ -22,10 +22,10 @@ import logging
 from functools import cached_property
 
 from homeassistant.components.select import SelectEntity
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import DeviceInfo
 
-from .const import DOMAIN, DEFAULT_WALLBOX_API_ENDPOINT, WALLBOX_MODE_MAP
+from .const import DOMAIN, WALLBOX_MODE_MAP
+from .wallbox_api import WallboxApiClient
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -37,18 +37,25 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     if not config_entry.options.get("use_wallbox_addon", False):
         return
 
-    async_add_entities([EnpalWallboxModeSelect(hass)], True)
+    api_client = WallboxApiClient(hass)
+    async_add_entities([EnpalWallboxModeSelect(hass, api_client)], True)
 
 
 class EnpalWallboxModeSelect(SelectEntity):
-    def __init__(self, hass):
+    def __init__(self, hass, api_client: WallboxApiClient):
+        """Initialize the wallbox mode selector.
+        
+        Args:
+            hass: Home Assistant instance
+            api_client: Wallbox API client instance
+        """
         self._hass = hass
+        self._api_client = api_client
         self._attr_name = "Wallbox Mode"
         self._attr_unique_id = "enpal_wallbox_mode_select"
         self._attr_options = list(WALLBOX_MODE_MAP.values())
         self._current_option = None
         self._pending_change = None
-        self._base_url = DEFAULT_WALLBOX_API_ENDPOINT
 
     
     @property
@@ -93,31 +100,17 @@ class EnpalWallboxModeSelect(SelectEntity):
             self._current_option = new_option
 
     async def async_select_option(self, option: str):
+        """Handle mode selection."""
         key = REVERSE_MODE_MAP.get(option.lower())
-        if key:
-            self._pending_change = option
-            self.async_write_ha_state()
+        if not key:
+            _LOGGER.warning("[Enpal] Unknown selected option: %s", option)
+            return
+        
+        self._pending_change = option
+        self.async_write_ha_state()
 
-            await self._call_wallbox_api(f"/set_{key}")
-
-            # Wait a moment to allow the wallbox to process the change
-            await asyncio.sleep(2)
-
-            await self._hass.services.async_call(
-                "homeassistant",
-                "update_entity",
-                {"entity_id": "sensor.wallbox_lademodus"},
-                blocking=True,
-            )
-        else:
-            _LOGGER.warning("Unknown selected option: %s", option)
-
-    async def _call_wallbox_api(self, endpoint):
-        url = f"{self._base_url}{endpoint}"
-        try:
-            session = async_get_clientsession(self._hass)
-            async with session.post(url, timeout=5) as resp:
-                if resp.status != 200:
-                    _LOGGER.warning("Wallbox API call failed: %s", url)
-        except Exception as e:
-            _LOGGER.error("Error calling wallbox API endpoint %s: %s", endpoint, e)
+        # Call API and refresh sensors
+        await self._api_client.call_and_refresh_sensors(
+            f"/set_{key}",
+            sensor_entities=["sensor.wallbox_lademodus"]
+        )
