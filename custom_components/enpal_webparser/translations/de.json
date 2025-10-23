@@ -2,20 +2,53 @@
   "config": {
     "step": {
       "user": {
-        "title": "Erstkonfiguration",
-        "description": "Hier kannst du Einstellungen vornehmen",
+        "title": "Enpal Solar Integration einrichten",
+        "description": "Wählen Sie, wie Sie Ihre Enpal-Solaranlage einrichten möchten",
         "data": {
-          "url": "URL / IP-Adresse der Enpal Box",
+          "setup_mode": "Einrichtungsmethode"
+        },
+        "data_description": {
+          "setup_mode": "Wählen Sie zwischen automatischer Erkennung oder manueller Eingabe"
+        }
+      },
+      "discovery": {
+        "title": "Gefundene Enpal-Geräte",
+        "description": "{discovered_count} Enpal-Gerät(e) in Ihrem Netzwerk gefunden. Wählen Sie Ihr Gerät aus:",
+        "data": {
+          "discovered_device": "Enpal-Gerät auswählen"
+        }
+      },
+      "discovery_options": {
+        "discover": "Automatische Erkennung im Netzwerk",
+        "manual": "Manuelle Einrichtung (URL eingeben)",
+        "none_of_these": "Keines davon - URL manuell eingeben",
+        "no_devices": "Keine Geräte gefunden - URL manuell eingeben"
+      },
+      "manual": {
+        "title": "Manuelle Einrichtung",
+        "description": "Geben Sie die URL der Web-Oberfläche Ihres Enpal-Geräts ein",
+        "data": {
+          "url": "URL / IP-Adresse der Enpal Box"
+        }
+      },
+      "configure": {
+        "title": "Enpal Integration konfigurieren",
+        "description": "Einstellungen für Gerät konfigurieren: {url}",
+        "data": {
           "interval": "Abfrageintervall (in Sekunden) - Weniger als 60 Sekunden wird nicht empfohlen!",
           "groups": "Sensorgruppen auswählen",
-          "use_wallbox_addon": "Wallbox Add-on verwenden (EXPERIMENTELL!) - Das Add-on muss vorher installiert und konfiguriert werden - https://github.com/derolli1976/enpal-wallbox-addon - nur bei Homeassistant OS oder Supevisor Installation möglich!"
+          "use_wallbox_addon": "Wallbox Add-on verwenden (EXPERIMENTELL!) - Das Add-on muss vorher installiert und konfiguriert werden - https://github.com/derolli1976/enpal-wallbox-addon - nur bei Homeassistant OS oder Supervisor Installation möglich!"
         }
       }
     },
     "error": {
       "invalid_format": "Ungültige URL - sie muss mit http:// beginnen und eine gültige IP-Adresse oder Host enthalten.",
       "unreachable": "Die URL konnte nicht erreicht werden - bitte Verbindung und Adresse prüfen.",
-      "wallbox_unreachable": "Die Wallbox-API ist nicht erreichbar. Stelle sicher, dass das Add-on läuft und erreichbar ist! Test: http://Homeassistant-IP-ADDRESSE:36725/wallbox/status"
+      "wallbox_unreachable": "Die Wallbox-API ist nicht erreichbar. Stelle sicher, dass das Add-on läuft und erreichbar ist! Test: http://Homeassistant-IP-ADDRESSE:36725/wallbox/status",
+      "no_devices_found": "Keine Enpal-Geräte in Ihrem Netzwerk gefunden. Bitte verwenden Sie die manuelle Einrichtung."
+    },
+    "abort": {
+      "already_configured": "Dieses Gerät ist bereits konfiguriert"
     }
   },
   "options": {

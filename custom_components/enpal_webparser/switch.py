@@ -22,11 +22,11 @@ from functools import cached_property
 import logging
 
 from homeassistant.components.switch import SwitchEntity
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.event import async_track_state_change_event
 
 from .const import DOMAIN
+from .wallbox_api import WallboxApiClient
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -35,17 +35,24 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     if not config_entry.options.get("use_wallbox_addon", False):
         return
 
-    async_add_entities([EnpalWallboxSwitch(hass)], True)
+    api_client = WallboxApiClient(hass)
+    async_add_entities([EnpalWallboxSwitch(hass, api_client)], True)
 
 
 class EnpalWallboxSwitch(SwitchEntity):
-    def __init__(self, hass):
+    def __init__(self, hass, api_client: WallboxApiClient):
+        """Initialize the wallbox switch.
+        
+        Args:
+            hass: Home Assistant instance
+            api_client: Wallbox API client instance
+        """
         self._hass = hass
+        self._api_client = api_client
         self._attr_name = "Wallbox Charging"
         self._attr_unique_id = "enpal_wallbox_charging_switch"
         self._is_on = False
         self._pending_state = None
-        self._base_url = "http://localhost:36725/wallbox"
 
     @property
     def is_on(self):
@@ -99,38 +106,27 @@ class EnpalWallboxSwitch(SwitchEntity):
             self._is_on = new_state
 
     async def async_turn_on(self, **kwargs):
-        await self._call_wallbox_api("/start")
-        self._pending_state = True
-        self.async_write_ha_state()
+        """Turn on the wallbox charging."""
+        success = await self._api_client.call_and_refresh_sensors(
+            "/start",
+            sensor_entities=[
+                "sensor.wallbox_status",
+                "sensor.wallbox_lademodus"
+            ]
+        )
+        if success:
+            self._pending_state = True
+            self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs):
-        await self._call_wallbox_api("/stop")
-        self._pending_state = False
-        self.async_write_ha_state()
-
-    async def _call_wallbox_api(self, endpoint):
-        url = f"{self._base_url}{endpoint}"
-        try:
-            session = async_get_clientsession(self._hass)
-            async with session.post(url, timeout=5) as resp:
-                if resp.status != 200:
-                    _LOGGER.warning("Wallbox API call failed: %s", url)
-                else:
-                    _LOGGER.debug("Wallbox API call success: %s", url)
-
-                    # Short wait to allow wallbox to process the change
-                    await asyncio.sleep(2)
-
-                    # Get new status after command
-                    await self._hass.services.async_call(
-                        "homeassistant", "update_entity",
-                        {
-                            "entity_id": [
-                                "sensor.wallbox_status",
-                                "sensor.wallbox_lademodus"
-                            ]
-                        },
-                        blocking=True
-                    )
-        except Exception as e:
-            _LOGGER.error("Error calling wallbox API endpoint %s: %s", endpoint, e)
+        """Turn off the wallbox charging."""
+        success = await self._api_client.call_and_refresh_sensors(
+            "/stop",
+            sensor_entities=[
+                "sensor.wallbox_status",
+                "sensor.wallbox_lademodus"
+            ]
+        )
+        if success:
+            self._pending_state = False
+            self.async_write_ha_state()
