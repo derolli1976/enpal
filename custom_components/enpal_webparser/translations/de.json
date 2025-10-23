@@ -6,9 +6,6 @@
         "description": "Wählen Sie, wie Sie Ihre Enpal-Solaranlage einrichten möchten",
         "data": {
           "setup_mode": "Einrichtungsmethode"
-        },
-        "data_description": {
-          "setup_mode": "Wählen Sie zwischen automatischer Erkennung oder manueller Eingabe"
         }
       },
       "discovery": {
@@ -17,12 +14,6 @@
         "data": {
           "discovered_device": "Enpal-Gerät auswählen"
         }
-      },
-      "discovery_options": {
-        "discover": "Automatische Erkennung im Netzwerk",
-        "manual": "Manuelle Einrichtung (URL eingeben)",
-        "none_of_these": "Keines davon - URL manuell eingeben",
-        "no_devices": "Keine Geräte gefunden - URL manuell eingeben"
       },
       "manual": {
         "title": "Manuelle Einrichtung",

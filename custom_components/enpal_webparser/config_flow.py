@@ -27,7 +27,6 @@ from homeassistant import config_entries
 from homeassistant.core import callback
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers import translation
 
 from .discovery import discover_enpal_devices, quick_discover_enpal_devices
 from .wallbox_api import WallboxApiClient
@@ -152,17 +151,6 @@ class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         super().__init__()
         self._discovered_devices = []
         self._discovery_running = False
-        self._translations = None
-    
-    async def _get_translation(self, key: str, default: str) -> str:
-        """Get translation for a key with fallback to default."""
-        if self._translations is None:
-            self._translations = await translation.async_get_translations(
-                self.hass, self.hass.config.language, "config", {DOMAIN}
-            )
-        
-        full_key = f"component.{DOMAIN}.config.step.discovery_options.{key}"
-        return self._translations.get(full_key, default)
 
     async def async_step_user(self, user_input=None):
         """Handle the initial step - choose between manual and auto-discovery."""
@@ -174,16 +162,12 @@ class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             elif user_input.get("setup_mode") == "discover":
                 return await self.async_step_discovery()
         
-        # Get translated strings for options
-        discover_text = await self._get_translation("discover", "Auto-discover Enpal boxes on network")
-        manual_text = await self._get_translation("manual", "Manual setup (enter URL)")
-        
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema({
                 vol.Required("setup_mode", default="discover"): vol.In({
-                    "discover": discover_text,
-                    "manual": manual_text,
+                    "discover": "Auto-discover Enpal boxes on network",
+                    "manual": "Manual setup (enter URL)",
                 })
             }),
         )
@@ -221,13 +205,12 @@ class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         # Show discovery results
         if not self._discovered_devices:
             _LOGGER.warning("[Enpal] No Enpal devices discovered")
-            no_devices_text = await self._get_translation("no_devices", "No devices found - Enter URL manually")
             
             return self.async_show_form(
                 step_id="discovery",
                 data_schema=vol.Schema({
                     vol.Required("discovered_device"): vol.In({
-                        "manual": no_devices_text,
+                        "manual": "No devices found - Enter URL manually",
                     })
                 }),
                 errors={"base": "no_devices_found"},
@@ -238,8 +221,7 @@ class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         
         # Create selection dict from discovered devices
         device_options = {url: url for url in self._discovered_devices}
-        none_of_these_text = await self._get_translation("none_of_these", "None of these - Enter URL manually")
-        device_options["manual"] = none_of_these_text
+        device_options["manual"] = "None of these - Enter URL manually"
         
         return self.async_show_form(
             step_id="discovery",
@@ -303,6 +285,10 @@ class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["use_wallbox_addon"] = "wallbox_unreachable"
             
             if not errors:
+                # Set unique_id based on URL to prevent duplicate entries
+                await self.async_set_unique_id(self._url)
+                self._abort_if_unique_id_configured()
+                
                 return self.async_create_entry(
                     title="Enpal Webparser",
                     data={"use_options_flow": True},

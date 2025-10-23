@@ -6,9 +6,6 @@
         "description": "Choose how you want to set up your Enpal solar system",
         "data": {
           "setup_mode": "Setup method"
-        },
-        "data_description": {
-          "setup_mode": "Choose between automatic discovery or manual entry"
         }
       },
       "discovery": {
@@ -17,12 +14,6 @@
         "data": {
           "discovered_device": "Select Enpal device"
         }
-      },
-      "discovery_options": {
-        "discover": "Auto-discover Enpal boxes on network",
-        "manual": "Manual setup (enter URL)",
-        "none_of_these": "None of these - Enter URL manually",
-        "no_devices": "No devices found - Enter URL manually"
       },
       "manual": {
         "title": "Manual Setup",
