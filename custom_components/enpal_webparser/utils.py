@@ -294,7 +294,7 @@ def parse_card_rows(card: Tag, group: str, groups: List[str]) -> List[Dict[str, 
             # Add the new split sensors (if any)
             if expanded:
                 sensor_list.extend(expanded)
-                _LOGGER.info(
+                _LOGGER.debug(
                     "[Enpal] Expanded inverter state into %d sensors (group=%s, base=%s)",
                     len(expanded), group, raw_name
                 )
