@@ -17,7 +17,7 @@
 #
 
 import ipaddress
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from custom_components.enpal_webparser.discovery import (
@@ -62,14 +62,17 @@ async def test_check_enpal_device_valid():
     # Mock HTML response with Enpal markers (updated to match actual Enpal device HTML)
     mock_response = MagicMock()
     mock_response.status = 200
-    mock_response.text = MagicMock(
+    # Use AsyncMock for the async text() method
+    mock_response.text = AsyncMock(
         return_value='<html><h1 class="m-3">Device Messages</h1><div class="card"><h2>Inverter</h2><table></table></div></html>'
     )
     
+    # Properly mock the async context manager
     mock_session = MagicMock()
-    mock_session.get = MagicMock(return_value=mock_response)
-    mock_session.get.return_value.__aenter__ = MagicMock(return_value=mock_response)
-    mock_session.get.return_value.__aexit__ = MagicMock(return_value=None)
+    mock_get = MagicMock()
+    mock_get.__aenter__ = AsyncMock(return_value=mock_response)
+    mock_get.__aexit__ = AsyncMock(return_value=None)
+    mock_session.get = MagicMock(return_value=mock_get)
     
     with patch('custom_components.enpal_webparser.discovery.async_get_clientsession', return_value=mock_session):
         result = await check_enpal_device(hass, "192.168.178.178")
