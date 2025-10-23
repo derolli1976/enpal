@@ -83,7 +83,8 @@ async def validate_wallbox_api(hass) -> bool:
     """
     try:
         api_client = WallboxApiClient(hass)
-        status_data = await api_client.get_status()
+        # Use 15 second timeout to allow addon time to start up
+        status_data = await api_client.get_status(timeout=15)
         
         if status_data is None:
             _LOGGER.warning("[Enpal] Wallbox API not reachable")
@@ -322,6 +323,9 @@ class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Optional("use_wallbox_addon", default=config["use_wallbox_addon"]): bool,
                 }),
                 errors=errors,
+                description_placeholders={
+                    "url": self._url,
+                },
             )
         
         return self.async_show_form(

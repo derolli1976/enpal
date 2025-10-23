@@ -132,13 +132,16 @@ class WallboxApiClient:
         _LOGGER.info("[Enpal] Setting wallbox to Full mode")
         return await self._post("/set_full")
 
-    async def get_status(self) -> Optional[dict]:
+    async def get_status(self, timeout: int = 15) -> Optional[dict]:
         """Get current wallbox status.
+        
+        Args:
+            timeout: Request timeout in seconds (default: 15)
         
         Returns:
             Status dict from API or None if failed
         """
-        return await self._get("/status", timeout=10)
+        return await self._get("/status", timeout=timeout)
 
     async def call_and_refresh_sensors(
         self,
