@@ -143,6 +143,51 @@ async def process_user_input(hass, user_input: dict[str, Any]) -> tuple[dict[str
     }, {}
 
 
+def get_localized_options(hass, key: str) -> dict[str, str]:
+    """Get localized selector options based on user's language.
+    
+    Args:
+        hass: Home Assistant instance
+        key: The option key ('setup_mode' or 'discovered_device_none')
+    
+    Returns:
+        Dictionary with option values and localized labels
+    """
+    language = hass.config.language or "en"
+    
+    translations = {
+        "setup_mode": {
+            "en": {
+                "discover": "Auto-discover Enpal boxes on network",
+                "manual": "Manual setup (enter URL)",
+            },
+            "de": {
+                "discover": "Automatische Erkennung von Enpal-Geräten im Netzwerk",
+                "manual": "Manuelle Einrichtung (URL eingeben)",
+            },
+        },
+        "discovered_device_none": {
+            "en": {
+                "none": "None of these - Enter URL manually",
+            },
+            "de": {
+                "none": "Keines davon - URL manuell eingeben",
+            },
+        },
+        "no_devices": {
+            "en": {
+                "manual": "No devices found - Enter URL manually",
+            },
+            "de": {
+                "manual": "Keine Geräte gefunden - URL manuell eingeben",
+            },
+        },
+    }
+    
+    # Default to English if language not found
+    return translations.get(key, {}).get(language, translations[key]["en"])
+
+
 class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     VERSION = 1
 
@@ -165,10 +210,9 @@ class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="user",
             data_schema=vol.Schema({
-                vol.Required("setup_mode", default="discover"): vol.In({
-                    "discover": "Auto-discover Enpal boxes on network",
-                    "manual": "Manual setup (enter URL)",
-                })
+                vol.Required("setup_mode", default="discover"): vol.In(
+                    get_localized_options(self.hass, "setup_mode")
+                ),
             }),
         )
 
@@ -209,9 +253,9 @@ class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             return self.async_show_form(
                 step_id="discovery",
                 data_schema=vol.Schema({
-                    vol.Required("discovered_device"): vol.In({
-                        "manual": "No devices found - Enter URL manually",
-                    })
+                    vol.Required("discovered_device"): vol.In(
+                        get_localized_options(self.hass, "no_devices")
+                    ),
                 }),
                 errors={"base": "no_devices_found"},
                 description_placeholders={
@@ -221,7 +265,7 @@ class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         
         # Create selection dict from discovered devices
         device_options = {url: url for url in self._discovered_devices}
-        device_options["manual"] = "None of these - Enter URL manually"
+        device_options.update(get_localized_options(self.hass, "discovered_device_none"))
         
         return self.async_show_form(
             step_id="discovery",

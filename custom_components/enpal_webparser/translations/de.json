@@ -3,14 +3,14 @@
     "step": {
       "user": {
         "title": "Enpal Solar Integration einrichten",
-        "description": "Wählen Sie, wie Sie Ihre Enpal-Solaranlage einrichten möchten",
+        "description": "Wählen Sie, wie Sie Ihre Enpal-Solaranlage einrichten möchten.\n\nHinweis: Die automatische Erkennung durchsucht Ihr Netzwerk und kann 1-2 Minuten dauern. Bitte haben Sie während des Scans Geduld.",
         "data": {
           "setup_mode": "Einrichtungsmethode"
         }
       },
       "discovery": {
         "title": "Gefundene Enpal-Geräte",
-        "description": "{discovered_count} Enpal-Gerät(e) in Ihrem Netzwerk gefunden. Wählen Sie Ihr Gerät aus:",
+        "description": "{discovered_count} Gerät(e) in Ihrem Netzwerk gefunden. Wählen Sie Ihr Gerät aus:",
         "data": {
           "discovered_device": "Enpal-Gerät auswählen"
         }

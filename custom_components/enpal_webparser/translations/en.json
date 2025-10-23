@@ -3,14 +3,14 @@
     "step": {
       "user": {
         "title": "Setup Enpal Solar Integration",
-        "description": "Choose how you want to set up your Enpal solar system",
+        "description": "Choose how you want to set up your Enpal solar system.\n\nNote: Auto-discovery will scan your network and may take 1-2 minutes. Please be patient during the scan.",
         "data": {
           "setup_mode": "Setup method"
         }
       },
       "discovery": {
         "title": "Discovered Enpal Devices",
-        "description": "Found {discovered_count} Enpal device(s) on your network. Select your device:",
+        "description": "Found {discovered_count} device(s) on your network. Select your device:",
         "data": {
           "discovered_device": "Select Enpal device"
         }
