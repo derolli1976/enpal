@@ -19,9 +19,8 @@
 
 Diese Home Assistant Integration liest Daten von der lokalen Enpal-Webseite der Solaranlage (z. B. `http://192.168.178.178/deviceMessages`) aus und stellt die Werte als Sensoren in Home Assistant zur Verfügung.  
 
-### ⚠️ Hinweis: Mit dem letzten Update seitens Enpal sind manchmal einige Sensoren nicht mehr verfügbar!
-Diese sollten nach und nach wieder erscheinen. Ein Neustart der Anlage und von Homeassistant hilft in vielen Fällen, in anderen Fällen erledigt sich das Problem nach ein paar Tagen von alleine.
-Ich kann auf meiner Seite leider nichts dagegen tun, da ich darauf angewiesen bin, dass die Daten durch Enpal auch zur Verfügung gestellt werden.
+### ⚠️ Hinweis: Aktuell sind bei einigen Nutzern die Wallbox Sensoren nicht verfügbar!
+Die Sensordaten für die Wallbox werden bei einigen Nutzern aktuell nicht auf der Box bereitgestellt. Das ist ein enpal-seitiges Problem.
 
 ### ⚠️ Hinweis: Nur einige Enpal Boxen der **1. Generation** werden **unterstützt**.  
 Entscheidend ist, ob unter der IP-Adresse der Enpal Box im lokalen Netzwerk eine Webseite wie die folgende angezeigt wird:
