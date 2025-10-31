@@ -229,6 +229,9 @@ def parse_enpal_html_sensors(
 
         sensors.extend(parse_card_rows(card, group, groups))
 
+    # Calculate missing current sensors from power and voltage (I = P / U)
+    sensors = add_calculated_current_sensors(sensors)
+
     return sensors
 
 
@@ -266,6 +269,7 @@ def parse_card_rows(card: Tag, group: str, groups: List[str]) -> List[Dict[str, 
             "device_class": device_class,
             "enabled": group in groups,
             "enpal_last_update": timestamp_iso,
+            "group": group,  # Add group for later filtering
         }
 
         sensor_id = make_id(sensor["name"])
@@ -316,3 +320,101 @@ def parse_timestamp(raw: Optional[str]) -> Optional[str]:
         return dt.isoformat()
     except ValueError:
         return raw
+
+
+def add_calculated_current_sensors(sensors: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Calculate missing PowerSensor current sensors from power and voltage.
+    
+    Enpal boxes no longer provide Current.Phase.A/B/C sensors directly.
+    This function calculates them using Ohm's law: I = P / U
+    
+    Args:
+        sensors: List of parsed sensors
+        
+    Returns:
+        Updated sensor list with calculated current sensors added
+    """
+    # Find power and voltage values for each phase
+    power_sensors = {}
+    voltage_sensors = {}
+    
+    for sensor in sensors:
+        name = sensor.get("name", "")
+        group = sensor.get("group", "")
+        
+        # Only process PowerSensor group
+        if group != "PowerSensor":
+            continue
+        
+        # Generate a normalized ID from the name for matching
+        sensor_id = make_id(name)
+        
+        # Collect power values (Power.AC.Phase.A/B/C)
+        if "power_ac_phase_a" in sensor_id:
+            power_sensors["a"] = sensor
+        elif "power_ac_phase_b" in sensor_id:
+            power_sensors["b"] = sensor
+        elif "power_ac_phase_c" in sensor_id:
+            power_sensors["c"] = sensor
+        # Collect voltage values (Voltage.Phase.A/B/C)
+        elif "voltage_phase_a" in sensor_id:
+            voltage_sensors["a"] = sensor
+        elif "voltage_phase_b" in sensor_id:
+            voltage_sensors["b"] = sensor
+        elif "voltage_phase_c" in sensor_id:
+            voltage_sensors["c"] = sensor
+    
+    # Calculate current for each phase where both power and voltage are available
+    calculated_count = 0
+    for phase in ["a", "b", "c"]:
+        power_sensor = power_sensors.get(phase)
+        voltage_sensor = voltage_sensors.get(phase)
+        
+        if not power_sensor or not voltage_sensor:
+            continue
+            
+        try:
+            # Get numeric values as strings, then convert to float
+            power_str = get_numeric_value(power_sensor.get("value", ""))
+            voltage_str = get_numeric_value(voltage_sensor.get("value", ""))
+            
+            if not power_str or not voltage_str:
+                continue
+                
+            power_value = float(power_str)
+            voltage_value = float(voltage_str)
+            
+            if voltage_value == 0:
+                continue
+            
+            # Calculate current: I = P / U
+            current_value = power_value / voltage_value
+            
+            # Create calculated current sensor
+            phase_upper = phase.upper()
+            current_sensor = {
+                "name": f"PowerSensor: Current Phase ({phase_upper})",
+                "value": str(round(current_value, 2)),
+                "unit": "A",
+                "device_class": "current",
+                "enabled": True,
+                "enpal_last_update": power_sensor.get("enpal_last_update") or voltage_sensor.get("enpal_last_update"),
+                "group": "PowerSensor",
+            }
+            
+            sensors.append(current_sensor)
+            calculated_count += 1
+            
+        except (ValueError, ZeroDivisionError, TypeError) as e:
+            _LOGGER.debug(
+                "[Enpal] Could not calculate current for phase %s: %s",
+                phase.upper(), e
+            )
+    
+    if calculated_count > 0:
+        _LOGGER.debug(
+            "[Enpal] Calculated %d missing PowerSensor current sensor(s)",
+            calculated_count
+        )
+    
+    return sensors
