@@ -328,12 +328,38 @@ def add_calculated_current_sensors(sensors: List[Dict[str, Any]]) -> List[Dict[s
     Enpal boxes no longer provide Current.Phase.A/B/C sensors directly.
     This function calculates them using Ohm's law: I = P / U
     
+    If the current sensors are already provided by the Enpal box, this function
+    does nothing to avoid duplicates.
+    
     Args:
         sensors: List of parsed sensors
         
     Returns:
-        Updated sensor list with calculated current sensors added
+        Updated sensor list with calculated current sensors added (if missing)
     """
+    # First, check if current sensors already exist
+    existing_current_sensors = set()
+    for sensor in sensors:
+        name = sensor.get("name", "")
+        group = sensor.get("group", "")
+        
+        if group == "PowerSensor":
+            sensor_id = make_id(name)
+            # Check for existing current sensors
+            if "current_phase_a" in sensor_id:
+                existing_current_sensors.add("a")
+            elif "current_phase_b" in sensor_id:
+                existing_current_sensors.add("b")
+            elif "current_phase_c" in sensor_id:
+                existing_current_sensors.add("c")
+    
+    # If all current sensors already exist, skip calculation
+    if len(existing_current_sensors) == 3:
+        _LOGGER.debug(
+            "[Enpal] PowerSensor current sensors already provided by Enpal box, skipping calculation"
+        )
+        return sensors
+    
     # Find power and voltage values for each phase
     power_sensors = {}
     voltage_sensors = {}
@@ -367,6 +393,10 @@ def add_calculated_current_sensors(sensors: List[Dict[str, Any]]) -> List[Dict[s
     # Calculate current for each phase where both power and voltage are available
     calculated_count = 0
     for phase in ["a", "b", "c"]:
+        # Skip if this phase's current sensor already exists
+        if phase in existing_current_sensors:
+            continue
+            
         power_sensor = power_sensors.get(phase)
         voltage_sensor = voltage_sensors.get(phase)
         

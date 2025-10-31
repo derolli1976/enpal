@@ -166,3 +166,181 @@ def test_calculate_current_sensors_non_powersensor_group():
     # Should have only the original sensors (no calculation for non-PowerSensor group)
     assert len(result) == 2
     assert not any("Current Phase" in s["name"] for s in result)
+
+
+def test_calculate_current_sensors_already_provided():
+    """Test that calculation is skipped if current sensors already exist."""
+    sensors = [
+        # Power sensors
+        {
+            "name": "PowerSensor: Power AC Phase (A)",
+            "value": "-61",
+            "unit": "W",
+            "group": "PowerSensor",
+            "enabled": True,
+            "enpal_last_update": "2025-10-31T09:57:14.635Z",
+        },
+        {
+            "name": "PowerSensor: Power AC Phase (B)",
+            "value": "-19",
+            "unit": "W",
+            "group": "PowerSensor",
+            "enabled": True,
+            "enpal_last_update": "2025-10-31T09:57:14.635Z",
+        },
+        {
+            "name": "PowerSensor: Power AC Phase (C)",
+            "value": "77",
+            "unit": "W",
+            "group": "PowerSensor",
+            "enabled": True,
+            "enpal_last_update": "2025-10-31T09:57:14.636Z",
+        },
+        # Voltage sensors
+        {
+            "name": "PowerSensor: Voltage Phase (A)",
+            "value": "231.1",
+            "unit": "V",
+            "group": "PowerSensor",
+            "enabled": True,
+            "enpal_last_update": "2025-10-31T09:57:14.634Z",
+        },
+        {
+            "name": "PowerSensor: Voltage Phase (B)",
+            "value": "230.1",
+            "unit": "V",
+            "group": "PowerSensor",
+            "enabled": True,
+            "enpal_last_update": "2025-10-31T09:57:14.634Z",
+        },
+        {
+            "name": "PowerSensor: Voltage Phase (C)",
+            "value": "230.3",
+            "unit": "V",
+            "group": "PowerSensor",
+            "enabled": True,
+            "enpal_last_update": "2025-10-31T09:57:14.634Z",
+        },
+        # Current sensors ALREADY PROVIDED by Enpal
+        {
+            "name": "PowerSensor: Current Phase (A)",
+            "value": "1.5",
+            "unit": "A",
+            "group": "PowerSensor",
+            "enabled": True,
+            "enpal_last_update": "2025-10-31T09:57:14.635Z",
+        },
+        {
+            "name": "PowerSensor: Current Phase (B)",
+            "value": "1.2",
+            "unit": "A",
+            "group": "PowerSensor",
+            "enabled": True,
+            "enpal_last_update": "2025-10-31T09:57:14.635Z",
+        },
+        {
+            "name": "PowerSensor: Current Phase (C)",
+            "value": "1.8",
+            "unit": "A",
+            "group": "PowerSensor",
+            "enabled": True,
+            "enpal_last_update": "2025-10-31T09:57:14.636Z",
+        },
+    ]
+    
+    result = add_calculated_current_sensors(sensors)
+    
+    # Should have exactly 9 sensors (no duplicates added)
+    assert len(result) == 9
+    
+    # Find current sensors
+    current_sensors = [s for s in result if "Current Phase" in s["name"]]
+    assert len(current_sensors) == 3
+    
+    # Verify these are the ORIGINAL sensors (not calculated)
+    # The original values should be preserved (1.5, 1.2, 1.8 A)
+    current_a = next(s for s in current_sensors if "Phase (A)" in s["name"])
+    assert float(current_a["value"]) == 1.5
+
+
+def test_calculate_current_sensors_partial_provided():
+    """Test that calculation only adds missing current sensors."""
+    sensors = [
+        # Power and voltage for all phases
+        {
+            "name": "PowerSensor: Power AC Phase (A)",
+            "value": "-61",
+            "unit": "W",
+            "group": "PowerSensor",
+            "enabled": True,
+            "enpal_last_update": "2025-10-31T09:57:14.635Z",
+        },
+        {
+            "name": "PowerSensor: Voltage Phase (A)",
+            "value": "231.1",
+            "unit": "V",
+            "group": "PowerSensor",
+            "enabled": True,
+            "enpal_last_update": "2025-10-31T09:57:14.634Z",
+        },
+        {
+            "name": "PowerSensor: Power AC Phase (B)",
+            "value": "-19",
+            "unit": "W",
+            "group": "PowerSensor",
+            "enabled": True,
+            "enpal_last_update": "2025-10-31T09:57:14.635Z",
+        },
+        {
+            "name": "PowerSensor: Voltage Phase (B)",
+            "value": "230.1",
+            "unit": "V",
+            "group": "PowerSensor",
+            "enabled": True,
+            "enpal_last_update": "2025-10-31T09:57:14.634Z",
+        },
+        {
+            "name": "PowerSensor: Power AC Phase (C)",
+            "value": "77",
+            "unit": "W",
+            "group": "PowerSensor",
+            "enabled": True,
+            "enpal_last_update": "2025-10-31T09:57:14.636Z",
+        },
+        {
+            "name": "PowerSensor: Voltage Phase (C)",
+            "value": "230.3",
+            "unit": "V",
+            "group": "PowerSensor",
+            "enabled": True,
+            "enpal_last_update": "2025-10-31T09:57:14.634Z",
+        },
+        # Only Phase A current sensor is provided
+        {
+            "name": "PowerSensor: Current Phase (A)",
+            "value": "1.5",
+            "unit": "A",
+            "group": "PowerSensor",
+            "enabled": True,
+            "enpal_last_update": "2025-10-31T09:57:14.635Z",
+        },
+    ]
+    
+    result = add_calculated_current_sensors(sensors)
+    
+    # Should have 7 original + 2 calculated (B and C) = 9 sensors
+    assert len(result) == 9
+    
+    # Find all current sensors
+    current_sensors = [s for s in result if "Current Phase" in s["name"]]
+    assert len(current_sensors) == 3
+    
+    # Phase A should be the original (1.5 A)
+    current_a = next(s for s in current_sensors if "Phase (A)" in s["name"])
+    assert float(current_a["value"]) == 1.5
+    
+    # Phase B and C should be calculated
+    current_b = next(s for s in current_sensors if "Phase (B)" in s["name"])
+    current_c = next(s for s in current_sensors if "Phase (C)" in s["name"])
+    assert float(current_b["value"]) == pytest.approx(-0.08, abs=0.01)
+    assert float(current_c["value"]) == pytest.approx(0.33, abs=0.01)
