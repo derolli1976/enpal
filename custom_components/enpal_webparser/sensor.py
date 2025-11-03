@@ -118,7 +118,49 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         entities.append(build_sensor_entity(sensor_dict, coordinator))
 
 
-    entities.append(CumulativeEnergySensor(hass, coordinator, "Inverter Power DC Total (Huawei)", interval))
+    # Create cumulative energy sensor with smart fallback for different inverter types
+    
+    source_sensor = None
+    available_sensor_names = [s.get("name", "") for s in coordinator.data]
+    
+    # Priority 1: Try Huawei-specific sensor first
+    if "Inverter: Power DC Total (Huawei)" in available_sensor_names:
+        source_sensor = "Inverter: Power DC Total (Huawei)"
+        _LOGGER.info("[Enpal] Using Huawei-specific DC power sensor: %s", source_sensor)
+    
+    # Priority 2: Try other manufacturer-specific sensors (SMA, Fronius, etc.)
+    # Look for pattern: "Inverter: Power DC Total (<Manufacturer>)"
+    if not source_sensor:
+        for name in available_sensor_names:
+            name_id = make_id(name)
+            # Match manufacturer-specific format but exclude Calculated
+            if (name_id.startswith("inverter_power_dc_total_") and 
+                name_id != "inverter_power_dc_total_calculated" and
+                name_id != "inverter_power_dc_total"):
+                source_sensor = name
+                _LOGGER.info("[Enpal] Found manufacturer-specific DC power sensor: %s", name)
+                break
+    
+    # Priority 3: Try generic "Inverter: Power DC Total"
+    if not source_sensor and "Inverter: Power DC Total" in available_sensor_names:
+        source_sensor = "Inverter: Power DC Total"
+        _LOGGER.info("[Enpal] Using generic DC power sensor: %s", source_sensor)
+    
+    # Priority 4: Last resort - use calculated sensor
+    if not source_sensor and "Inverter: Power DC Total Calculated" in available_sensor_names:
+        source_sensor = "Inverter: Power DC Total Calculated"
+        _LOGGER.warning("[Enpal] Using calculated DC power sensor (least accurate): %s", source_sensor)
+    
+    # Final fallback: If nothing found, use Huawei as default (will trigger warning)
+    if not source_sensor:
+        source_sensor = "Inverter: Power DC Total (Huawei)"
+        _LOGGER.warning(
+            "[Enpal] No DC power sensor found. Available power sensors: %s. Using fallback: %s",
+            ", ".join([make_id(n) for n in available_sensor_names if "power" in make_id(n).lower()]),
+            source_sensor
+        )
+    
+    entities.append(CumulativeEnergySensor(hass, coordinator, [source_sensor], interval))
     entities.append(DailyResetFromEntitySensor(hass, "sensor.inverter_energy_produced_total_dc"))
 
     if entry.options.get("use_wallbox_addon", False):
@@ -165,7 +207,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 
 
 class CumulativeEnergySensor(SensorEntity, RestoreEntity):  
-    def __init__(self, hass: HomeAssistant, coordinator: DataUpdateCoordinator, sensor_name: str, interval_seconds: int):
+    def __init__(self, hass: HomeAssistant, coordinator: DataUpdateCoordinator, sensor_names: list[str], interval_seconds: int):
         self.hass = hass
         self._attr_name = str("Inverter: Energy produced total (DC)")
         self._attr_unique_id = str("cumulative_energy_produced_dc_kwh")
@@ -174,7 +216,8 @@ class CumulativeEnergySensor(SensorEntity, RestoreEntity):
         self._attr_native_unit_of_measurement = "kWh"
         self._attr_icon = "mdi:solar-power"
         self._coordinator = coordinator
-        self._source_uid = make_id(sensor_name)
+        self._source_candidates = [make_id(name) for name in sensor_names]
+        self._active_source_uid = None  # Will be determined from available sensors
         self._interval_hours = interval_seconds / 3600
         self._state = self.hass.data[DOMAIN]["cumulative_energy_state"]
         self._value = None
@@ -187,7 +230,8 @@ class CumulativeEnergySensor(SensorEntity, RestoreEntity):
     @property
     def extra_state_attributes(self) -> dict:
         return {
-            "last_updated": self._last_updated
+            "last_updated": self._last_updated,
+            "source_sensor": self._active_source_uid if self._active_source_uid else "Not determined"
         }
 
     async def async_added_to_hass(self):
@@ -204,9 +248,26 @@ class CumulativeEnergySensor(SensorEntity, RestoreEntity):
         self._coordinator.async_add_listener(self._handle_coordinator_update)
 
     def _handle_coordinator_update(self):
+        # If we haven't determined the active source yet, find the first available one
+        if self._active_source_uid is None:
+            available_sensors = {make_id(s["name"]) for s in self._coordinator.data}
+            for candidate in self._source_candidates:
+                if candidate in available_sensors:
+                    self._active_source_uid = candidate
+                    _LOGGER.info("[Enpal] Using DC power sensor: %s", candidate)
+                    break
+            
+            if self._active_source_uid is None:
+                _LOGGER.warning(
+                    "[Enpal] No suitable DC power sensor found. Tried: %s",
+                    ", ".join(self._source_candidates)
+                )
+                self.async_write_ha_state()
+                return
+        
+        # Now process the update with the active source
         for sensor in self._coordinator.data:
-            _LOGGER.debug("[Enpal] Checking Sensor: %s (%s)", sensor["name"], make_id(sensor["name"]))
-            if make_id(sensor["name"]) == self._source_uid:
+            if make_id(sensor["name"]) == self._active_source_uid:
                 try:
                     power_watt = float(sensor["value"])
                     energy_kwh = power_watt * self._interval_hours / 1000
@@ -214,7 +275,7 @@ class CumulativeEnergySensor(SensorEntity, RestoreEntity):
                         self._value = 0.0
                     self._value += energy_kwh
                     self._last_updated = datetime.now().isoformat()
-                    _LOGGER.debug("[Enpal] +%.5f kWh -> Total: %.3f", energy_kwh, self._state["value"])
+                    _LOGGER.debug("[Enpal] +%.5f kWh -> Total: %.3f kWh", energy_kwh, self._value)
                 except Exception as e:
                     _LOGGER.warning("[Enpal] Error in energy calculation: %s", e)
                 break
