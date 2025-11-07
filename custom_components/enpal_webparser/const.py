@@ -31,6 +31,7 @@ DEFAULT_GROUPS = [
     "Site Data",
     "IoTEdgeDevice",
     "PowerSensor",
+    "Heatpump",
 ]
 
 DEFAULT_USE_WALLBOX_ADDON = False
@@ -239,5 +240,12 @@ ICON_MAP = {
     "inverter_system_state_stop_due_to_power_rationing": "mdi:flash-off",
     "inverter_system_state_shutdown": "mdi:power",
     "inverter_system_state_spot_check": "mdi:magnify",
+
+    # Heatpump
+    "heatpump_domestichotwater_temperature": "mdi:water-thermometer",
+    "heatpump_energy_consumption_total_lifetime": "mdi:lightning-bolt",
+    "heatpump_operation_mode_midea": "mdi:heat-pump-outline",
+    "heatpump_outside_temperature": "mdi:thermometer",
+    "heatpump_power_consumption_total": "mdi:heat-pump",
 }
 
