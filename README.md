@@ -67,7 +67,7 @@ Eine Home Assistant Custom Integration zur lokalen Überwachung von Enpal Solara
 
 ## 📋 Voraussetzungen
 
-### ⚠️ Wichtig: Nur Enpal Boxen der 1. Generation werden unterstützt
+### ⚠️ Wichtig: Nur wenige Enpal Boxen der 1. Generation werden unterstützt!
 
 Die Integration funktioniert **nur**, wenn die Enpal Box eine lokale Weboberfläche bereitstellt. Ob dies der Fall ist, lässt sich einfach testen:
 
@@ -79,7 +79,7 @@ Die Integration funktioniert **nur**, wenn die Enpal Box eine lokale Weboberflä
   <img src="./images/enpal_box_webseite.png" alt="Enpal Box Webseite" width="600"/>
 </p>
 
-**Hinweis**: Neuere Enpal Boxen (2. Generation) stellen diese Weboberfläche nicht mehr bereit und werden aktuell **nicht unterstützt**.
+**Hinweis**: Ältere Enpal Boxen (1. Generation) stellen diese Weboberfläche nicht immer bereit und werden aktuell **nicht unterstützt**.
 
 ### Technische Anforderungen
 - Home Assistant Core 2024.1.0 oder höher
