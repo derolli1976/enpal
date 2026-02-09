@@ -182,26 +182,26 @@ Sensor-Gruppen können jederzeit geändert werden:
 
 ## 🚗 Wallbox-Steuerung (Optional)
 
-Für die Steuerung der Enpal Wallbox wird ein separates Add-on benötigt, das die Kommunikation mit der Wallbox-Hardware übernimmt.
+Für die Steuerung der Enpal Wallbox wird ein separates Add-on, bzw. seit 2026.2 eine eigene "App" benötigt, welche die Kommunikation mit der Wallbox-Hardware übernehmen.
 
-### Features des Wallbox Add-ons
+### Features des Wallbox Add-ons / der Wallbox App
 - **Lademodus umschalten**: Eco, Solar, Full
 - **Laden starten/stoppen**
 - **Status-Sensoren**: Aktueller Modus, Ladestatus, Leistung
 
-### Installation des Add-ons
+### Installation des Add-ons / der App
 
-1. **Add-on Store** in Home Assistant öffnen
+1. **Add-on / App Store** in Home Assistant öffnen (Einstellungen - Apps)
 2. **Drei-Punkte-Menü** (oben rechts) → **Repositories**
 3. Repository-URL hinzufügen:
    ```
    https://github.com/derolli1976/enpal-wallbox-addon
    ```
-4. **Enpal Wallbox Control** Add-on installieren
-5. Add-on starten
+4. **Enpal Wallbox Control** Add-on / App installieren
+5. Add-on / App starten
 6. In der Enpal Integration **Wallbox Add-on** aktivieren (siehe [Konfiguration](#-konfiguration))
 
-📚 [Vollständige Wallbox Add-on Dokumentation](https://github.com/derolli1976/enpal-wallbox-addon)
+📚 [Vollständige Wallbox Add-on / App Dokumentation](https://github.com/derolli1976/enpal-wallbox-addon)
 
 ---
 
@@ -255,9 +255,9 @@ Enpal aktualisiert gelegentlich die Firmware, was zu temporär fehlenden Sensore
 <summary><b>Wallbox-Steuerung funktioniert nicht</b></summary>
 
 **Prüfungen**:
-1. Wallbox Add-on installiert und gestartet?
-2. Wallbox Add-on in Integration aktiviert?
-3. Add-on Logs prüfen: **Einstellungen** → **Add-ons** → **Enpal Wallbox Control** → **Protokoll**
+1. Wallbox Add-on / App installiert und gestartet?
+2. Wallbox Add-on / App in Integration aktiviert?
+3. Add-on / App Logs prüfen: **Einstellungen** → **Add-ons** / **Apps** → **Enpal Wallbox Control** → **Protokoll**
 4. Sensor `sensor.wallbox_status` vorhanden und aktualisiert?
 
 </details>
@@ -286,7 +286,7 @@ Die Integration ist vollständig mit dem Home Assistant Energy Dashboard kompati
 **Netzverbrauch**:
 - `sensor.inverter_grid_import_power_total_calculated` (Bezug vom Netz)
 
-**Rücklaufendes Netz**:
+**Einspeisung**:
 - `sensor.inverter_power_grid_export_calculated` (Einspeisung ins Netz)
 
 **Solaranlage**:
