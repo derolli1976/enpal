@@ -49,6 +49,7 @@ from .utils import (
 
 from .const import (
     DEFAULT_INTERVAL,
+    DEFAULT_TIMEOUT,
     DEFAULT_URL,
     DOMAIN,
 )
@@ -60,6 +61,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 
     url = entry.options.get("url", DEFAULT_URL)
     interval = entry.options.get("interval", DEFAULT_INTERVAL)
+    timeout = entry.options.get("timeout", DEFAULT_TIMEOUT)
     groups = entry.options.get("groups", [])
     _LOGGER.debug("[Enpal] Configuration - URL: %s, Interval: %s, Groups: %s", url, interval, groups)
 
@@ -69,7 +71,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         nonlocal last_successful_data
         try:
             session = async_get_clientsession(hass)
-            async with session.get(url, timeout=30) as resp:
+            async with session.get(url, timeout=timeout) as resp:
                 if resp.status != 200:
                     raise Exception(f"Unexpected status code: {resp.status}")
                 html = await resp.text()
