@@ -41,6 +41,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _LOGGER.info("[Enpal] async_setup_entry started for entry_id: %s", entry.entry_id)
     hass.data.setdefault(DOMAIN, {})
 
+    # Migration: Add data_source to existing configs if missing
+    if "data_source" not in entry.options:
+        _LOGGER.info("[Enpal] Migrating existing config - setting data_source to 'html'")
+        new_options = dict(entry.options)
+        new_options["data_source"] = "html"  # Existing installations use HTML
+        hass.config_entries.async_update_entry(entry, options=new_options)
+
     use_wallbox_addon = entry.options.get("use_wallbox_addon", False)
     
     platforms = ["sensor"]
@@ -67,6 +74,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _LOGGER.info("[Enpal] async_unload_entry called for entry_id: %s", entry.entry_id)
+
+    # Close API client if exists
+    coordinator = hass.data.get(DOMAIN, {}).get("coordinator")
+    if coordinator and hasattr(coordinator, 'api_client'):
+        try:
+            await coordinator.api_client.close()
+            _LOGGER.info("[Enpal] API client connection closed")
+        except Exception as e:
+            _LOGGER.warning("[Enpal] Error closing API client: %s", e)
 
     platforms = hass.data[DOMAIN].get(entry.entry_id, {}).get("platforms", [])
     _LOGGER.debug("[Enpal] Unloading platforms: %s", platforms)

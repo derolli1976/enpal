@@ -98,6 +98,38 @@ async def validate_wallbox_api(hass) -> bool:
         return False
 
 
+async def detect_websocket_support(hass, base_url: str) -> bool:
+    """Detect if the Enpal box supports WebSocket connections.
+    
+    Args:
+        hass: Home Assistant instance
+        base_url: Base URL of Enpal box (e.g., http://192.168.2.70)
+        
+    Returns:
+        True if WebSocket is available, False otherwise
+    """
+    try:
+        from .api import EnpalWebSocketClient
+        
+        _LOGGER.info("[Enpal] Testing WebSocket support for %s", base_url)
+        client = EnpalWebSocketClient(base_url, groups=["Battery"])
+        
+        try:
+            connected = await client.connect()
+            if connected:
+                _LOGGER.info("[Enpal] WebSocket connection successful")
+                return True
+            else:
+                _LOGGER.info("[Enpal] WebSocket connection failed")
+                return False
+        finally:
+            await client.close()
+            
+    except Exception as e:
+        _LOGGER.info("[Enpal] WebSocket not supported: %s", e)
+        return False
+
+
 def get_default_config(options: dict[str, Any] | None = None) -> dict[str, Any]:
     src = dict(options) if options is not None else {}
     return {
@@ -105,6 +137,7 @@ def get_default_config(options: dict[str, Any] | None = None) -> dict[str, Any]:
         "interval": src.get("interval", DEFAULT_INTERVAL),
         "groups": src.get("groups", DEFAULT_GROUPS),
         "use_wallbox_addon": src.get("use_wallbox_addon", DEFAULT_USE_WALLBOX_ADDON),
+        "data_source": src.get("data_source", "auto"),  # auto, websocket, html
     }
 
 
@@ -115,6 +148,11 @@ def get_form_schema(config: dict[str, Any]) -> vol.Schema:
             vol.Required("interval", default=cast(Any, config["interval"])): int,
             vol.Optional("groups", default=cast(Any, config["groups"])): cv.multi_select(DEFAULT_GROUPS),
             vol.Optional("use_wallbox_addon", default=cast(Any, config["use_wallbox_addon"])): bool,
+            vol.Optional("data_source", default=cast(Any, config["data_source"])): vol.In({
+                "auto": "Auto-detect (recommended)",
+                "websocket": "WebSocket (real-time)",
+                "html": "HTML polling (legacy)"
+            }),
         }
     )
 
@@ -135,11 +173,28 @@ async def process_user_input(hass, user_input: dict[str, Any]) -> tuple[dict[str
     if errors:
         return None, errors
 
+    # Handle data source selection
+    data_source = user_input.get("data_source", "auto")
+    
+    if data_source == "auto":
+        # Auto-detect: Try WebSocket first, fall back to HTML
+        base_url = url_checked.replace("/deviceMessages", "")
+        websocket_available = await detect_websocket_support(hass, base_url)
+        data_source = "websocket" if websocket_available else "html"
+        _LOGGER.info("[Enpal] Auto-detected data source: %s", data_source)
+    elif data_source == "websocket":
+        # Validate WebSocket is actually available
+        base_url = url_checked.replace("/deviceMessages", "")
+        if not await detect_websocket_support(hass, base_url):
+            _LOGGER.warning("[Enpal] WebSocket selected but not available, falling back to HTML")
+            data_source = "html"
+
     return {
         "url": url_checked,
         "interval": user_input["interval"],
         "groups": user_input.get("groups", DEFAULT_GROUPS),
         "use_wallbox_addon": user_input.get("use_wallbox_addon", False),
+        "data_source": data_source,
     }, {}
 
 
@@ -319,6 +374,7 @@ class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             "interval": DEFAULT_INTERVAL,
             "groups": DEFAULT_GROUPS,
             "use_wallbox_addon": DEFAULT_USE_WALLBOX_ADDON,
+            "data_source": "auto",
         }
         
         if user_input is not None and "interval" in user_input:
@@ -329,6 +385,22 @@ class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["use_wallbox_addon"] = "wallbox_unreachable"
             
             if not errors:
+                # Handle data source selection
+                data_source = user_input.get("data_source", "auto")
+                
+                if data_source == "auto":
+                    # Auto-detect: Try WebSocket first, fall back to HTML
+                    base_url = self._url.replace("/deviceMessages", "")
+                    websocket_available = await detect_websocket_support(self.hass, base_url)
+                    data_source = "websocket" if websocket_available else "html"
+                    _LOGGER.info("[Enpal] Auto-detected data source: %s", data_source)
+                elif data_source == "websocket":
+                    # Validate WebSocket is actually available
+                    base_url = self._url.replace("/deviceMessages", "")
+                    if not await detect_websocket_support(self.hass, base_url):
+                        _LOGGER.warning("[Enpal] WebSocket selected but not available, falling back to HTML")
+                        data_source = "html"
+                
                 # Set unique_id based on URL to prevent duplicate entries
                 await self.async_set_unique_id(self._url)
                 self._abort_if_unique_id_configured()
@@ -341,6 +413,7 @@ class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         "interval": user_input["interval"],
                         "groups": user_input.get("groups", DEFAULT_GROUPS),
                         "use_wallbox_addon": user_input.get("use_wallbox_addon", False),
+                        "data_source": data_source,
                     },
                 )
             
@@ -351,6 +424,11 @@ class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Required("interval", default=config["interval"]): int,
                     vol.Optional("groups", default=config["groups"]): cv.multi_select(DEFAULT_GROUPS),
                     vol.Optional("use_wallbox_addon", default=config["use_wallbox_addon"]): bool,
+                    vol.Optional("data_source", default=config["data_source"]): vol.In({
+                        "auto": "Auto-detect (recommended)",
+                        "websocket": "WebSocket (real-time)",
+                        "html": "HTML polling (legacy)"
+                    }),
                 }),
                 errors=errors,
                 description_placeholders={
@@ -364,6 +442,11 @@ class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required("interval", default=config["interval"]): int,
                 vol.Optional("groups", default=config["groups"]): cv.multi_select(DEFAULT_GROUPS),
                 vol.Optional("use_wallbox_addon", default=config["use_wallbox_addon"]): bool,
+                vol.Optional("data_source", default=config["data_source"]): vol.In({
+                    "auto": "Auto-detect (recommended)",
+                    "websocket": "WebSocket (real-time)",
+                    "html": "HTML polling (legacy)"
+                }),
             }),
             description_placeholders={
                 "url": self._url,
