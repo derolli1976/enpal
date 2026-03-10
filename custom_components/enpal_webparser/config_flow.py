@@ -33,6 +33,7 @@ from .wallbox_api import WallboxApiClient
 from .const import (
     DEFAULT_GROUPS,
     DEFAULT_INTERVAL,
+    DEFAULT_TIMEOUT,
     DEFAULT_URL,
     DEFAULT_USE_WALLBOX_ADDON,
     DEFAULT_WALLBOX_API_ENDPOINT,
@@ -103,6 +104,7 @@ def get_default_config(options: dict[str, Any] | None = None) -> dict[str, Any]:
     return {
         "url": src.get("url", DEFAULT_URL),
         "interval": src.get("interval", DEFAULT_INTERVAL),
+        "timeout": src.get("timeout", DEFAULT_TIMEOUT),
         "groups": src.get("groups", DEFAULT_GROUPS),
         "use_wallbox_addon": src.get("use_wallbox_addon", DEFAULT_USE_WALLBOX_ADDON),
     }
@@ -113,6 +115,7 @@ def get_form_schema(config: dict[str, Any]) -> vol.Schema:
         {
             vol.Required("url", default=cast(Any, config["url"])): str,
             vol.Required("interval", default=cast(Any, config["interval"])): int,
+            vol.Required("timeout", default=cast(Any, config["timeout"])): vol.All(int, vol.Range(min=10, max=120)),
             vol.Optional("groups", default=cast(Any, config["groups"])): cv.multi_select(DEFAULT_GROUPS),
             vol.Optional("use_wallbox_addon", default=cast(Any, config["use_wallbox_addon"])): bool,
         }
@@ -138,6 +141,7 @@ async def process_user_input(hass, user_input: dict[str, Any]) -> tuple[dict[str
     return {
         "url": url_checked,
         "interval": user_input["interval"],
+        "timeout": user_input.get("timeout", DEFAULT_TIMEOUT),
         "groups": user_input.get("groups", DEFAULT_GROUPS),
         "use_wallbox_addon": user_input.get("use_wallbox_addon", False),
     }, {}
@@ -317,6 +321,7 @@ class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         config = {
             "url": getattr(self, "_url", DEFAULT_URL),
             "interval": DEFAULT_INTERVAL,
+            "timeout": DEFAULT_TIMEOUT,
             "groups": DEFAULT_GROUPS,
             "use_wallbox_addon": DEFAULT_USE_WALLBOX_ADDON,
         }
@@ -339,6 +344,7 @@ class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     options={
                         "url": self._url,
                         "interval": user_input["interval"],
+                        "timeout": user_input.get("timeout", DEFAULT_TIMEOUT),
                         "groups": user_input.get("groups", DEFAULT_GROUPS),
                         "use_wallbox_addon": user_input.get("use_wallbox_addon", False),
                     },
@@ -349,6 +355,7 @@ class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 step_id="configure",
                 data_schema=vol.Schema({
                     vol.Required("interval", default=config["interval"]): int,
+                    vol.Required("timeout", default=config["timeout"]): vol.All(int, vol.Range(min=10, max=120)),
                     vol.Optional("groups", default=config["groups"]): cv.multi_select(DEFAULT_GROUPS),
                     vol.Optional("use_wallbox_addon", default=config["use_wallbox_addon"]): bool,
                 }),
@@ -362,6 +369,7 @@ class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             step_id="configure",
             data_schema=vol.Schema({
                 vol.Required("interval", default=config["interval"]): int,
+                vol.Required("timeout", default=config["timeout"]): vol.All(int, vol.Range(min=10, max=120)),
                 vol.Optional("groups", default=config["groups"]): cv.multi_select(DEFAULT_GROUPS),
                 vol.Optional("use_wallbox_addon", default=config["use_wallbox_addon"]): bool,
             }),
