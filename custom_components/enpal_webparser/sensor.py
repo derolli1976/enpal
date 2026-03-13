@@ -74,7 +74,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     base_url = url.replace("/deviceMessages", "").rstrip("/")
     
     if data_source == "websocket":
-        _LOGGER.info("[Enpal] Using WebSocket client")
+        _LOGGER.info("[Enpal] Using WebSocket client (push mode)")
         api_client = EnpalWebSocketClient(base_url, groups=groups)
     else:
         _LOGGER.info("[Enpal] Using HTML client")
@@ -108,6 +108,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                 _LOGGER.exception("[Enpal] No previous data available")
                 raise UpdateFailed(f"Initial data fetch failed: {e}")
 
+    # Both modes use the configured interval for polling.
+    # WebSocket additionally processes any server-pushed data between polls.
     coordinator = DataUpdateCoordinator(
         hass,
         logger=_LOGGER,
@@ -118,6 +120,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     
     # Store API client reference for cleanup
     coordinator.api_client = api_client
+
+    # Register push callback for WebSocket client
+    if data_source == "websocket" and isinstance(api_client, EnpalWebSocketClient):
+        async def _on_push_data(result: dict) -> None:
+            """Handle push data from WebSocket – update coordinator immediately."""
+            nonlocal last_successful_data
+            sensors = result.get('sensors', [])
+            if sensors:
+                last_successful_data = sensors
+                coordinator.async_set_updated_data(sensors)
+                _LOGGER.debug(
+                    "[Enpal] Push update: %d sensors received", len(sensors)
+                )
+
+        api_client.set_data_callback(_on_push_data)
 
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN].setdefault("cumulative_energy_state", {

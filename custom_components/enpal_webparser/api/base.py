@@ -1,6 +1,6 @@
 """Abstract Base Class for Enpal API Clients"""
 from abc import ABC, abstractmethod
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Callable, Awaitable
 
 
 class EnpalApiClient(ABC):
@@ -58,4 +58,10 @@ class EnpalApiClient(ABC):
         Returns:
             True if connected, False otherwise
         """
+        pass
+
+    def set_data_callback(
+        self, callback: Optional[Callable[[Dict], Awaitable[None]]]
+    ) -> None:
+        """Register a push-data callback. Only meaningful for push-capable clients."""
         pass
