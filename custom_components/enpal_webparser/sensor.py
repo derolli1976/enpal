@@ -51,6 +51,7 @@ from .api import EnpalWebSocketClient, EnpalHtmlClient, EnpalApiClient
 
 from .const import (
     DEFAULT_INTERVAL,
+    DEFAULT_TIMEOUT,
     DEFAULT_URL,
     DOMAIN,
 )
@@ -62,6 +63,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 
     url = entry.options.get("url", DEFAULT_URL)
     interval = entry.options.get("interval", DEFAULT_INTERVAL)
+    timeout = entry.options.get("timeout", DEFAULT_TIMEOUT)
     groups = entry.options.get("groups", [])
     data_source = entry.options.get("data_source", "html")  # Default to HTML for backward compatibility
     

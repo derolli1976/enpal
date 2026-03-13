@@ -27,8 +27,9 @@
         "description": "Configure settings for device at: {url}",
         "data": {
           "interval": "Polling interval (in seconds) - Intervals below 60 seconds are not recommended!",
+          "timeout": "HTTP timeout (in seconds, 10-120) - Increase if sensors frequently become unavailable",
           "groups": "Select sensor groups",
-          "use_wallbox_addon": "Use Wallbox add-on (EXPERIMENTAL!) - The add-on must be installed and configured beforehand - https://github.com/derolli1976/enpal-wallbox-addon - only supported on Home Assistant OS or Supervisor installations!"
+          "use_wallbox_addon": "Use Wallbox add-on (EXPERIMENTAL!) - The add-on must be installed and configured beforehand - See README in the Repository!"
         }
       }
     },
@@ -50,8 +51,9 @@
         "data": {
           "url": "URL / IP address of the Enpal Box",
           "interval": "Polling interval (in seconds) - Intervals below 60 seconds are not recommended!",
+          "timeout": "HTTP timeout (in seconds, 10-120) - Increase if sensors frequently become unavailable",
           "groups": "Select sensor groups",
-          "use_wallbox_addon": "Use Wallbox add-on (EXPERIMENTAL!) - The add-on must be installed and configured beforehand - https://github.com/derolli1976/enpal-wallbox-addon - only supported on Home Assistant OS or Supervisor installations!"
+          "use_wallbox_addon": "Use Wallbox add-on (EXPERIMENTAL!) - The add-on must be installed and configured beforehand - See README in the Repository!"
         }
       }
     },

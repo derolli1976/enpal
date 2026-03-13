@@ -23,6 +23,7 @@ DOMAIN = "enpal_webparser"
 # Note: Enpal boxes get IP via DHCP, use auto-discovery or check your router
 DEFAULT_URL = "http://192.168.1.1/deviceMessages"  # Placeholder - use discovery or check router
 DEFAULT_INTERVAL = 60
+DEFAULT_TIMEOUT = 30
 
 DEFAULT_GROUPS = [
     "Wallbox",

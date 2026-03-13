@@ -10,7 +10,7 @@
 [![Pytest](https://github.com/derolli1976/enpal/actions/workflows/tests.yaml/badge.svg)](https://github.com/derolli1976/enpal/actions/workflows/tests.yaml)
 [![CodeQL](https://github.com/derolli1976/enpal/actions/workflows/codeql.yaml/badge.svg)](https://github.com/derolli1976/enpal/actions/workflows/codeql.yaml)
 [![Bandit](https://github.com/derolli1976/enpal/actions/workflows/bandit.yaml/badge.svg)](https://github.com/derolli1976/enpal/actions/workflows/bandit.yaml)
-![Enpal_version](https://img.shields.io/badge/tested%20with%20enpal%20firmware-Solar%20Rel.%208.47.4--461279%20(19.09.2025)-blue)
+![Enpal_version](https://img.shields.io/badge/tested%20with%20enpal%20firmware-Solar%20Rel.%208.48.0--518670%20(20.11.2025)-blue)
 
 [![hacs_install](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=derolli1976&repository=enpal&category=integration)
 
@@ -67,7 +67,7 @@ Eine Home Assistant Custom Integration zur lokalen Überwachung von Enpal Solara
 
 ## 📋 Voraussetzungen
 
-### ⚠️ Wichtig: Nur Enpal Boxen der 1. Generation werden unterstützt
+### ⚠️ Wichtig: Nur wenige Enpal Boxen der 1. Generation werden unterstützt!
 
 Die Integration funktioniert **nur**, wenn die Enpal Box eine lokale Weboberfläche bereitstellt. Ob dies der Fall ist, lässt sich einfach testen:
 
@@ -79,7 +79,7 @@ Die Integration funktioniert **nur**, wenn die Enpal Box eine lokale Weboberflä
   <img src="./images/enpal_box_webseite.png" alt="Enpal Box Webseite" width="600"/>
 </p>
 
-**Hinweis**: Neuere Enpal Boxen (2. Generation) stellen diese Weboberfläche nicht mehr bereit und werden aktuell **nicht unterstützt**.
+**Hinweis**: Ältere Enpal Boxen (1. Generation) stellen diese Weboberfläche nicht immer bereit und werden aktuell **nicht unterstützt**.
 
 ### Technische Anforderungen
 - Home Assistant Core 2024.1.0 oder höher
@@ -182,26 +182,26 @@ Sensor-Gruppen können jederzeit geändert werden:
 
 ## 🚗 Wallbox-Steuerung (Optional)
 
-Für die Steuerung der Enpal Wallbox wird ein separates Add-on benötigt, das die Kommunikation mit der Wallbox-Hardware übernimmt.
+Für die Steuerung der Enpal Wallbox wird ein separates Add-on, bzw. seit 2026.2 eine eigene "App" benötigt, welche die Kommunikation mit der Wallbox-Hardware übernehmen.
 
-### Features des Wallbox Add-ons
+### Features des Wallbox Add-ons / der Wallbox App
 - **Lademodus umschalten**: Eco, Solar, Full
 - **Laden starten/stoppen**
 - **Status-Sensoren**: Aktueller Modus, Ladestatus, Leistung
 
-### Installation des Add-ons
+### Installation des Add-ons / der App
 
-1. **Add-on Store** in Home Assistant öffnen
+1. **Add-on / App Store** in Home Assistant öffnen (Einstellungen - Apps)
 2. **Drei-Punkte-Menü** (oben rechts) → **Repositories**
 3. Repository-URL hinzufügen:
    ```
    https://github.com/derolli1976/enpal-wallbox-addon
    ```
-4. **Enpal Wallbox Control** Add-on installieren
-5. Add-on starten
+4. **Enpal Wallbox Control** Add-on / App installieren
+5. Add-on / App starten
 6. In der Enpal Integration **Wallbox Add-on** aktivieren (siehe [Konfiguration](#-konfiguration))
 
-📚 [Vollständige Wallbox Add-on Dokumentation](https://github.com/derolli1976/enpal-wallbox-addon)
+📚 [Vollständige Wallbox Add-on / App Dokumentation](https://github.com/derolli1976/enpal-wallbox-addon)
 
 ---
 
@@ -255,9 +255,9 @@ Enpal aktualisiert gelegentlich die Firmware, was zu temporär fehlenden Sensore
 <summary><b>Wallbox-Steuerung funktioniert nicht</b></summary>
 
 **Prüfungen**:
-1. Wallbox Add-on installiert und gestartet?
-2. Wallbox Add-on in Integration aktiviert?
-3. Add-on Logs prüfen: **Einstellungen** → **Add-ons** → **Enpal Wallbox Control** → **Protokoll**
+1. Wallbox Add-on / App installiert und gestartet?
+2. Wallbox Add-on / App in Integration aktiviert?
+3. Add-on / App Logs prüfen: **Einstellungen** → **Add-ons** / **Apps** → **Enpal Wallbox Control** → **Protokoll**
 4. Sensor `sensor.wallbox_status` vorhanden und aktualisiert?
 
 </details>
@@ -286,7 +286,7 @@ Die Integration ist vollständig mit dem Home Assistant Energy Dashboard kompati
 **Netzverbrauch**:
 - `sensor.inverter_grid_import_power_total_calculated` (Bezug vom Netz)
 
-**Rücklaufendes Netz**:
+**Einspeisung**:
 - `sensor.inverter_power_grid_export_calculated` (Einspeisung ins Netz)
 
 **Solaranlage**:

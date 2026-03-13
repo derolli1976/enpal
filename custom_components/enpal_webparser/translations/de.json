@@ -27,8 +27,9 @@
         "description": "Einstellungen für Gerät konfigurieren: {url}",
         "data": {
           "interval": "Abfrageintervall (in Sekunden) - Weniger als 60 Sekunden wird nicht empfohlen!",
+          "timeout": "HTTP-Timeout (in Sekunden, 10-120) - Erhöhen, wenn Sensoren häufig als nicht verfügbar angezeigt werden",
           "groups": "Sensorgruppen auswählen",
-          "use_wallbox_addon": "Wallbox Add-on verwenden (EXPERIMENTELL!) - Das Add-on muss vorher installiert und konfiguriert werden - https://github.com/derolli1976/enpal-wallbox-addon - nur bei Homeassistant OS oder Supervisor Installation möglich!"
+          "use_wallbox_addon": "Wallbox Add-on verwenden (EXPERIMENTELL!) - Das Add-on muss vorher installiert und konfiguriert werden - Bitte die README Datei im Repository beachten!"
         }
       }
     },
@@ -50,8 +51,9 @@
         "data": {
           "url": "URL / IP-Adresse der Enpal Box",
           "interval": "Abfrageintervall (in Sekunden) - Weniger als 60 Sekunden wird nicht empfohlen!",
+          "timeout": "HTTP-Timeout (in Sekunden, 10-120) - Erhöhen, wenn Sensoren häufig als nicht verfügbar angezeigt werden",
           "groups": "Sensorgruppen auswählen",
-          "use_wallbox_addon": "Wallbox Add-on verwenden (EXPERIMENTELL!) - Das Add-on muss vorher installiert und konfiguriert werden - https://github.com/derolli1976/enpal-wallbox-addon - nur bei Homeassistant OS oder Supevisor Installation möglich!"
+          "use_wallbox_addon": "Wallbox Add-on verwenden (EXPERIMENTELL!) - Das Add-on muss vorher installiert und konfiguriert werden - Bitte die README Datei im Repository beachten!"
         }
       }
     },

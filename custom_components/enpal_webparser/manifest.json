@@ -7,6 +7,6 @@
   "documentation": "https://github.com/derolli1976/enpal",
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/derolli1976/enpal/issues",
-  "requirements": ["beautifulsoup4", "psutil", "msgpack>=1.0.7"],
-  "version": "2.3.0"
+  "requirements": ["beautifulsoup4", "psutil"],
+  "version": "2.3.1"
 }
