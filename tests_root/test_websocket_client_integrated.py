@@ -9,8 +9,9 @@ import sys
 from pathlib import Path
 import json
 
-# Set Windows event loop policy
-asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+# Set Windows event loop policy (Windows only)
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
 
 # Import websocket client directly
 client_file = Path('custom_components/enpal_webparser/api/websocket_client.py')
