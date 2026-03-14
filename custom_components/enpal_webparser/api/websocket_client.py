@@ -38,6 +38,9 @@ class EnpalWebSocketClient(EnpalApiClient):
     HTML parser from ``utils.py``.
     """
 
+    # Keep-alive ping interval (seconds) — matches Blazor Server expectation
+    _PING_INTERVAL = 15
+
     def __init__(self, base_url: str, groups: List[str] = None):
         self.base_url = base_url.rstrip('/')
         self.groups = groups or [
@@ -50,8 +53,10 @@ class EnpalWebSocketClient(EnpalApiClient):
         self.application_state: str = ""
         self.connected: bool = False
         self._read_task: Optional[asyncio.Task] = None
+        self._ping_task: Optional[asyncio.Task] = None
         self._data_callback: Optional[Callable[[Dict], Awaitable[None]]] = None
         self._last_scrape_time: float = 0
+        self._last_activity: float = 0  # Last message received from server
 
     # ------------------------------------------------------------------
     # Public API
@@ -127,6 +132,10 @@ class EnpalWebSocketClient(EnpalApiClient):
             await asyncio.sleep(0.5)
 
             self.connected = True
+
+            # Start keep-alive ping task
+            self._ping_task = asyncio.create_task(self._ping_loop())
+
             _LOGGER.info("[Enpal WebSocket] Connected to /deviceMessages")
             return True
 
@@ -168,12 +177,14 @@ class EnpalWebSocketClient(EnpalApiClient):
         """Release all resources (safe to call multiple times)."""
         self.connected = False
 
-        if self._read_task and not self._read_task.done():
-            self._read_task.cancel()
-            try:
-                await self._read_task
-            except asyncio.CancelledError:
-                pass
+        for task in (self._ping_task, self._read_task):
+            if task and not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+        self._ping_task = None
         self._read_task = None
 
         if self.ws and not self.ws.closed:
@@ -218,8 +229,10 @@ class EnpalWebSocketClient(EnpalApiClient):
     async def _read_loop(self):
         """Background task – read and dispatch incoming WS messages."""
         try:
+            self._last_activity = time.monotonic()
             async for msg in self.ws:
                 if msg.type == aiohttp.WSMsgType.BINARY:
+                    self._last_activity = time.monotonic()
                     await self._handle_messages(msg.data)
                 elif msg.type in (aiohttp.WSMsgType.ERROR, aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.CLOSING):
                     _LOGGER.warning("[Enpal WebSocket] Connection lost (type=%s), will reconnect on next poll", msg.type)
@@ -232,15 +245,69 @@ class EnpalWebSocketClient(EnpalApiClient):
             self.connected = False
             _LOGGER.info("[Enpal WebSocket] Read loop ended, connected=False")
 
+    async def _ping_loop(self):
+        """Send periodic SignalR keep-alive pings.
+
+        Also detects stale connections: if no server message has been
+        received for 3 × ping interval, the connection is considered dead.
+        """
+        stale_threshold = self._PING_INTERVAL * 3
+        try:
+            while self.connected and self.ws and not self.ws.closed:
+                await asyncio.sleep(self._PING_INTERVAL)
+                if not self.connected or not self.ws or self.ws.closed:
+                    break
+                # Check for stale connection (no server activity)
+                silence = time.monotonic() - self._last_activity
+                if silence > stale_threshold:
+                    _LOGGER.warning(
+                        "[Enpal WebSocket] No server activity for %.0fs, marking connection dead",
+                        silence,
+                    )
+                    self.connected = False
+                    break
+                # Send keep-alive ping (SignalR type 6)
+                ping_msg = encode_message([6])
+                await self.ws.send_bytes(ping_msg)
+                _LOGGER.debug("[Enpal WebSocket] Sent keep-alive ping")
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            _LOGGER.debug("[Enpal WebSocket] Ping loop ended: %s", e)
+
     async def _handle_messages(self, data: bytes):
         """Dispatch decoded MessagePack messages."""
         messages = decode_messages(data)
 
         for msg in messages:
-            if len(msg) < 4:
+            if not isinstance(msg, list) or len(msg) == 0:
                 continue
+
             msg_type = msg[0]
-            if msg_type != 1:
+
+            # Type 6: Ping — server keep-alive; no response needed
+            if msg_type == 6:
+                continue
+
+            # Type 3: Completion — response to our hub invocations
+            if msg_type == 3:
+                # [3, headers, invocationId, resultKind, result]
+                result_kind = msg[3] if len(msg) > 3 else None
+                if result_kind == 1:
+                    inv_id = msg[2] if len(msg) > 2 else None
+                    result = msg[4] if len(msg) > 4 else None
+                    _LOGGER.error("[Enpal WebSocket] Server error for invocation %s: %s", inv_id, result)
+                continue
+
+            # Type 7: Close — server is shutting down the connection
+            if msg_type == 7:
+                error = msg[1] if len(msg) > 1 else None
+                _LOGGER.warning("[Enpal WebSocket] Server sent Close: %s", error)
+                self.connected = False
+                continue
+
+            # Type 1: Invocation
+            if msg_type != 1 or len(msg) < 4:
                 continue
 
             target = msg[3] if len(msg) > 3 else None
