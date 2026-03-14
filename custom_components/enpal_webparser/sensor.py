@@ -41,7 +41,6 @@ from homeassistant.helpers.update_coordinator import (
 
 from .entity_factory import build_sensor_entity
 
-from .wallbox_api import WallboxApiClient
 from .utils import (
     make_id,
     parse_enpal_html_sensors
@@ -202,45 +201,50 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     entities.append(CumulativeEnergySensor(hass, coordinator, [source_sensor], interval))
     entities.append(DailyResetFromEntitySensor(hass, "sensor.inverter_energy_produced_total_dc"))
 
-    if entry.options.get("use_wallbox_addon", False):
-        _LOGGER.info("[Enpal] Wallbox add-on enabled, setting up coordinator")
+    if entry.options.get("use_wallbox", False):
+        _LOGGER.info("[Enpal] Wallbox control enabled, setting up coordinator")
 
-        wallbox_api_client = WallboxApiClient(hass)
-        wallbox_data = {}
+        # Use shared wallbox client from entry data
+        entry_data = hass.data[DOMAIN].get(entry.entry_id, {})
+        wallbox_api_client = entry_data.get("wallbox_client")
+        if wallbox_api_client is None:
+            _LOGGER.error("[Enpal] No wallbox client available, skipping wallbox sensors")
+        else:
+            wallbox_data = {}
 
-        async def async_wallbox_update():
-            nonlocal wallbox_data
-            try:
-                data = await wallbox_api_client.get_status()
-                if data is None:
-                    raise Exception("Wallbox API returned None")
-                
-                _LOGGER.debug("[Enpal] Wallbox status data: %s", data)
-                wallbox_data = data
-                return data
-            except Exception as e:
-                if wallbox_data:
-                    _LOGGER.warning("[Enpal] Wallbox update failed - using last known data: %s", e)
-                    return wallbox_data
-                else:
-                    _LOGGER.warning("[Enpal] Wallbox update failed - no previous data yet: %s", e)
-                    raise UpdateFailed(f"Wallbox update failed and no previous data: {e}")
+            async def async_wallbox_update():
+                nonlocal wallbox_data
+                try:
+                    data = await wallbox_api_client.get_status()
+                    if data is None:
+                        raise Exception("Wallbox API returned None")
+                    
+                    _LOGGER.debug("[Enpal] Wallbox status data: %s", data)
+                    wallbox_data = data
+                    return data
+                except Exception as e:
+                    if wallbox_data:
+                        _LOGGER.warning("[Enpal] Wallbox update failed - using last known data: %s", e)
+                        return wallbox_data
+                    else:
+                        _LOGGER.warning("[Enpal] Wallbox update failed - no previous data yet: %s", e)
+                        raise UpdateFailed(f"Wallbox update failed and no previous data: {e}")
 
-        wallbox_coordinator = DataUpdateCoordinator(
-            hass,
-            logger=_LOGGER,
-            name="Wallbox Status",
-            update_method=async_wallbox_update,
-            update_interval=timedelta(seconds=interval),
-        )
+            wallbox_coordinator = DataUpdateCoordinator(
+                hass,
+                logger=_LOGGER,
+                name="Wallbox Status",
+                update_method=async_wallbox_update,
+                update_interval=timedelta(seconds=interval),
+            )
 
-        hass.async_create_task(wallbox_coordinator.async_refresh())
+            hass.async_create_task(wallbox_coordinator.async_refresh())
 
-        entities.extend([
-            WallboxModeSensor(wallbox_coordinator),
-            WallboxStatusSensor(wallbox_coordinator),
-        ])
-        _LOGGER.debug("[Enpal] Wallbox-Sensoren hinzugefügt")
+            entities.extend([
+                WallboxModeSensor(wallbox_coordinator),
+                WallboxStatusSensor(wallbox_coordinator),
+            ])
+            _LOGGER.debug("[Enpal] Wallbox-Sensoren hinzugefügt")
 
     async_add_entities(entities)
 

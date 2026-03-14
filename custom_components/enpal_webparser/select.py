@@ -34,10 +34,16 @@ REVERSE_MODE_MAP = {v.lower(): k for k, v in WALLBOX_MODE_MAP.items()}
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
-    if not config_entry.options.get("use_wallbox_addon", False):
+    if not config_entry.options.get("use_wallbox", False):
         return
 
-    api_client = WallboxApiClient(hass)
+    # Use shared wallbox client from entry data
+    entry_data = hass.data[DOMAIN].get(config_entry.entry_id, {})
+    api_client = entry_data.get("wallbox_client")
+    if api_client is None:
+        _LOGGER.error("[Enpal] No wallbox client available, skipping select setup")
+        return
+
     async_add_entities([EnpalWallboxModeSelect(hass, api_client)], True)
 
 

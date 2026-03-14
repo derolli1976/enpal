@@ -34,17 +34,23 @@ MODES = {
     "eco": "Eco",
     "full": "Full",
     "solar": "Solar",
+    "smart": "Smart",
 }
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
-    if not config_entry.options.get("use_wallbox_addon", False):
-        _LOGGER.debug("[Enpal] Wallbox add-on is disabled, skipping button setup.")
+    if not config_entry.options.get("use_wallbox", False):
+        _LOGGER.debug("[Enpal] Wallbox control is disabled, skipping button setup.")
         return
 
     _LOGGER.info("[Enpal] Setting up Wallbox buttons")
 
-    api_client = WallboxApiClient(hass)
+    # Use shared wallbox client from entry data
+    entry_data = hass.data[DOMAIN].get(config_entry.entry_id, {})
+    api_client = entry_data.get("wallbox_client")
+    if api_client is None:
+        _LOGGER.error("[Enpal] No wallbox client available, skipping button setup")
+        return
 
     buttons = [
         EnpalWallboxButton(hass, api_client, "Ladevorgang starten", "start", "start"),
@@ -99,6 +105,7 @@ class EnpalWallboxButton(ButtonEntity):
             "set_eco": self._api_client.set_mode_eco,
             "set_solar": self._api_client.set_mode_solar,
             "set_full": self._api_client.set_mode_full,
+            "set_smart": self._api_client.set_mode_smart,
         }
         
         api_method = action_map.get(self._action)
