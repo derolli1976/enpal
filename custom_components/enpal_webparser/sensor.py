@@ -125,7 +125,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     # Register push callback for WebSocket client
     if data_source == "websocket" and isinstance(api_client, EnpalWebSocketClient):
         async def _on_push_data(result: dict) -> None:
-            """Handle push data from WebSocket – update coordinator immediately."""
+            """Handle push data from WebSocket - update coordinator immediately."""
             nonlocal last_successful_data
             sensors = result.get('sensors', [])
             if sensors:

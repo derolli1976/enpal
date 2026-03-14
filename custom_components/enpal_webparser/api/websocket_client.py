@@ -3,7 +3,7 @@
 Connects to /deviceMessages via WebSocket. The Blazor server sends
 JS.RenderBatch messages every ~5 s when sensor data changes.  On each
 RenderBatch we HTTP-GET /deviceMessages and parse the HTML with the
-existing ``parse_enpal_html_sensors()`` function – giving us all 133+
+existing ``parse_enpal_html_sensors()`` function - giving us all 133+
 sensors, event-driven updates, and zero custom binary-diff parsing.
 """
 
@@ -227,7 +227,7 @@ class EnpalWebSocketClient(EnpalApiClient):
     # ------------------------------------------------------------------
 
     async def _read_loop(self):
-        """Background task – read and dispatch incoming WS messages."""
+        """Background task - read and dispatch incoming WS messages."""
         try:
             self._last_activity = time.monotonic()
             async for msg in self.ws:
