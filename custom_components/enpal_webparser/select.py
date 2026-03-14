@@ -23,8 +23,9 @@ from functools import cached_property
 
 from homeassistant.components.select import SelectEntity
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.event import async_track_state_change_event
 
-from .const import DOMAIN, WALLBOX_MODE_MAP
+from .const import DOMAIN, WALLBOX_LEGACY_MODE_MAP, WALLBOX_MODE_MAP
 from .wallbox_api import WallboxApiClient
 
 _LOGGER = logging.getLogger(__name__)
@@ -63,7 +64,21 @@ class EnpalWallboxModeSelect(SelectEntity):
         self._current_option = None
         self._pending_change = None
 
-    
+    async def async_added_to_hass(self):
+        """Register state change listener when entity is added."""
+        async_track_state_change_event(
+            self._hass,
+            "sensor.wallbox_lademodus",
+            self._handle_mode_change
+        )
+        await self.async_update()
+
+    async def _handle_mode_change(self, event):
+        """React to sensor.wallbox_lademodus state changes."""
+        _LOGGER.debug("[Enpal] Detected state change for wallbox_lademodus: %s", event.data)
+        await self.async_update()
+        self.async_write_ha_state()
+
     @property
     def current_option(self) -> str | None:
        return self._pending_change or self._current_option or "Nicht verfügbar"
@@ -85,6 +100,7 @@ class EnpalWallboxModeSelect(SelectEntity):
             return
 
         mode = mode_entity.state.lower()
+        mode = WALLBOX_LEGACY_MODE_MAP.get(mode, mode)
         new_option = WALLBOX_MODE_MAP.get(mode)
 
         if not new_option:
