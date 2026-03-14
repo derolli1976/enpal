@@ -35,8 +35,7 @@ DEFAULT_GROUPS = [
     "Heatpump",
 ]
 
-DEFAULT_USE_WALLBOX_ADDON = False
-DEFAULT_WALLBOX_API_ENDPOINT = "http://localhost:36725/wallbox"
+DEFAULT_USE_WALLBOX = False
 
 # --- Device Class/Unit Mappings ---
 DEFAULT_UNITS = {
@@ -79,8 +78,14 @@ STATE_CLASS_OVERRIDES = {
 # --- Wallbox Mode Mapping ---
 WALLBOX_MODE_MAP = {
     "eco": "Eco",
-    "fast": "Full",
+    "full": "Full",
     "solar": "Solar",
+    "smart": "Smart",
+}
+
+# Legacy mapping for backward compatibility (addon used "fast" for "Full")
+WALLBOX_LEGACY_MODE_MAP = {
+    "fast": "full",
 }
 
 # --- Date/Time Formats ---

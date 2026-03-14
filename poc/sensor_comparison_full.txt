@@ -1,0 +1,113 @@
+====================================================================================================
+TEST: WebSocket-Parser Naming
+====================================================================================================
+
+[HTML] Extrahiere HTML-Sensoren...
+   OK 133 Sensoren
+[WS] Extrahiere WebSocket-Sensoren (mit aktuellem Parser)...
+   OK 106 Sensoren
+
+====================================================================================================
+VERGLEICH
+====================================================================================================
+  [OK] In beiden:       88
+  [--] Nur HTML:        45
+  [++] Nur WebSocket:   18
+  [%] Uebereinstimmung: 66.2%
+
+[OK] BEISPIELE - In beiden:
+     Battery: Current.Battery
+     IoTEdgeDevice: LTE.Failover.Result
+     Wallbox: Energy.Wallbox.Connector.1.Charged.Total
+     Wallbox: Power.Wallbox.Connector.1.Offered
+     Wallbox: State.Wallbox.Connector.1.Charge
+     ... und 83 weitere
+
+[--] BEISPIELE - Nur HTML:
+     Battery: Current.Battery.Unit.1
+     Battery: Grid.Charge.Cutoff.SOC
+     Battery: Storage.Power.Of.Charge.From.Grid
+     Inverter: Power.Battery.Discharge.Max
+     Inverter: State.AlarmCodes.2
+     ... und 40 weitere
+
+[++] BEISPIELE - Nur WebSocket:
+     Site Data: Energy.External.Total.In.Day
+     Site Data: Energy.Storage.Level
+     Wallbox: Energy.Wallbox.Connector.1.byBattery.Total
+     Wallbox: Energy.Wallbox.Connector.1.byGrid.Total
+     Wallbox: Energy.Wallbox.Connector.1.bySolar.Total
+     ... und 13 weitere
+
+====================================================================================================
+[!!] TEILWEISE: 66.2% Uebereinstimmung - Verbesserung noetig
+
+ALLE Unterschiede:
+----------------------------------------------------------------------------------------------------
+
+[--] Nur HTML (nicht in WebSocket):
+     Battery: Battery.ChargeLevel.Max
+     Battery: Battery.ChargeLevel.Min
+     Battery: Battery.Force.ChargeDisCharge.Mode
+     Battery: Battery.Running.State
+     Battery: Battery.Running.State.Unit.1
+     Battery: Battery.Running.State.Unit.2
+     Battery: Current.Battery.Unit.1
+     Battery: Current.Battery.Unit.2
+     Battery: Duration.Battery.Force.ChargeDisCharge
+     Battery: Energy.Battery.Capacity
+     Battery: Energy.Battery.Charge.Level.Absolute
+     Battery: Energy.Battery.Charge.Level.Unit.1
+     Battery: Energy.Battery.Charge.Level.Unit.2
+     Battery: Grid.Charge.Cutoff.SOC
+     Battery: Mode.Battery.Working
+     Battery: Mode.Forcible.Charge.Discharge
+     Battery: Power.AC.Max
+     Battery: Power.Battery.Forcible.Charge
+     Battery: Power.Battery.Forcible.DisCharge
+     Battery: SerialNumber.Battery.Unit.1
+     Battery: Setting.Charge.From.Grid
+     Battery: SoftwareVersion.Service.Battery.Unit.1
+     Battery: Storage.Power.Of.Charge.From.Grid
+     Battery: Voltage.Battery.Unit.1
+     Battery: Voltage.Battery.Unit.2
+     Inverter: Grid.Import.Power.Total.Calculated
+     Inverter: Inverter.Power.Total
+     Inverter: Inverter.Running.State
+     Inverter: Mode.Forcible.Charge.Discharge
+     Inverter: Mode.Power.Active
+     Inverter: Power.AC.Max
+     Inverter: Power.Active.Fixed
+     Inverter: Power.Battery.Charge.Discharge
+     Inverter: Power.Battery.Charge.Max
+     Inverter: Power.Battery.Discharge.Max
+     Inverter: Power.DC.Total.Calculated
+     Inverter: Power.DC.Total.Huawei
+     Inverter: Power.Factor
+     Inverter: Power.Grid.Export.Huawei
+     Inverter: Power.Reactive
+     Inverter: SerialNumber
+     Inverter: Setting.Charge.From.Grid
+     Inverter: State.AlarmCodes.1
+     Inverter: State.AlarmCodes.2
+     Inverter: State.AlarmCodes.3
+
+[++] Nur WebSocket (nicht in HTML):
+     Inverter: Energy.Consumption.Total.Day
+     Inverter: Power.House.Total
+     Site Data: Energy.External.Total.In.Day
+     Site Data: Energy.External.Total.Out.Day
+     Site Data: Energy.Production.Total.Day
+     Site Data: Energy.Storage.Level
+     Site Data: Energy.Storage.Total.In.Day
+     Site Data: Energy.Storage.Total.Out.Day
+     Site Data: Percent.Storage.Level
+     Site Data: Power.External.Total
+     Site Data: Power.Production.Total
+     Site Data: Power.Storage.Total
+     Wallbox: Energy.Wallbox.Connector.1.byBattery.Total
+     Wallbox: Energy.Wallbox.Connector.1.byGrid.Total
+     Wallbox: Energy.Wallbox.Connector.1.bySolar.Total
+     Wallbox: Power.Wallbox.Connector.1.byBattery
+     Wallbox: Power.Wallbox.Connector.1.byGrid
+     Wallbox: Power.Wallbox.Connector.1.bySolar

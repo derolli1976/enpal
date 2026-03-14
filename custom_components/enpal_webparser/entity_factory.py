@@ -26,6 +26,31 @@ from homeassistant.helpers.entity import DeviceInfo
 from .utils import make_id
 from .const import ICON_MAP, STATE_CLASS_OVERRIDES
 
+import re
+
+
+def _display_name(name: str, group: str) -> str:
+    """Build a consistent display name with 'Group: Label' format.
+
+    The internal *name* (used for unique_id generation) sometimes already
+    contains the group word embedded (e.g. 'Current Wallbox Connector 1
+    Phase (B)').  For display purposes we always want the canonical form
+    'Wallbox: Current Connector 1 Phase (B)'.
+    """
+    group_lower = group.lower()
+
+    # Already has a proper 'Group: ...' prefix → keep as-is
+    if name.lower().startswith(group_lower + ":"):
+        return name
+
+    # Remove the embedded group word (case-insensitive, whole word)
+    pattern = re.compile(r'\b' + re.escape(group) + r'\b', re.IGNORECASE)
+    label = pattern.sub('', name).strip()
+    # Collapse any double spaces left behind
+    label = re.sub(r' {2,}', ' ', label).strip(': ')
+
+    return f"{group}: {label}" if label else name
+
 
 class EnpalBaseSensor(CoordinatorEntity, SensorEntity):
     """Generic Enpal sensor entity using the update coordinator."""
@@ -33,8 +58,10 @@ class EnpalBaseSensor(CoordinatorEntity, SensorEntity):
     def __init__(self, sensor: dict, coordinator: DataUpdateCoordinator):
         super().__init__(coordinator)
         self._sensor = sensor
-        self._attr_name = sensor.get("name")
-        self._attr_unique_id = make_id(sensor.get("name", "unknown"))
+        raw_name = sensor.get("name", "unknown")
+        group = sensor.get("group", "")
+        self._attr_name = _display_name(raw_name, group) if group else raw_name
+        self._attr_unique_id = make_id(raw_name)  # ID stays based on original name
         self._attr_native_unit_of_measurement = sensor.get("unit")
         self._attr_enabled_default = sensor.get("enabled", True)
 

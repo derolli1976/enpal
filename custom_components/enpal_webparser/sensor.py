@@ -41,11 +41,12 @@ from homeassistant.helpers.update_coordinator import (
 
 from .entity_factory import build_sensor_entity
 
-from .wallbox_api import WallboxApiClient
 from .utils import (
     make_id,
     parse_enpal_html_sensors
 )
+
+from .api import EnpalWebSocketClient, EnpalHtmlClient, EnpalApiClient
 
 from .const import (
     DEFAULT_INTERVAL,
@@ -63,25 +64,40 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     interval = entry.options.get("interval", DEFAULT_INTERVAL)
     timeout = entry.options.get("timeout", DEFAULT_TIMEOUT)
     groups = entry.options.get("groups", [])
-    _LOGGER.debug("[Enpal] Configuration - URL: %s, Interval: %s, Groups: %s", url, interval, groups)
+    data_source = entry.options.get("data_source", "html")  # Default to HTML for backward compatibility
+    
+    _LOGGER.info("[Enpal] Configuration - URL: %s, Interval: %s, Groups: %s, Data Source: %s", 
+                 url, interval, groups, data_source)
+
+    # Create API client based on data source
+    # Extract base URL (without /deviceMessages) for both clients
+    api_client: EnpalApiClient
+    base_url = url.replace("/deviceMessages", "").rstrip("/")
+    
+    if data_source == "websocket":
+        _LOGGER.info("[Enpal] Using WebSocket client (push mode)")
+        api_client = EnpalWebSocketClient(base_url, groups=groups)
+    else:
+        _LOGGER.info("[Enpal] Using HTML client")
+        api_client = EnpalHtmlClient(base_url, groups=groups)
 
     last_successful_data = []
 
     async def async_update_data():
         nonlocal last_successful_data
         try:
-            session = async_get_clientsession(hass)
-            async with session.get(url, timeout=timeout) as resp:
-                if resp.status != 200:
-                    raise Exception(f"Unexpected status code: {resp.status}")
-                html = await resp.text()
-
-            _LOGGER.debug("[Enpal] HTML content fetched successfully from %s", url)
-            soup = BeautifulSoup(html, 'html.parser')
-            cards = soup.find_all("div", class_="card")
-            _LOGGER.debug("[Enpal] Found %d card(s) in HTML", len(cards))
-
-            sensors = parse_enpal_html_sensors(html, groups)
+            # Connect if not already connected
+            if not api_client.is_connected():
+                connected = await api_client.connect()
+                if not connected:
+                    raise Exception(f"Failed to connect to Enpal Box using {data_source}")
+            
+            # Fetch data using unified interface
+            result = await api_client.fetch_data()
+            sensors = result['sensors']
+            
+            _LOGGER.debug("[Enpal] Fetched %d sensors from %s", len(sensors), result['source'])
+            last_successful_data = sensors
             
             return sensors
 
@@ -93,6 +109,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                 _LOGGER.exception("[Enpal] No previous data available")
                 raise UpdateFailed(f"Initial data fetch failed: {e}")
 
+    # Both modes use the configured interval for polling.
+    # WebSocket additionally processes any server-pushed data between polls.
     coordinator = DataUpdateCoordinator(
         hass,
         logger=_LOGGER,
@@ -100,6 +118,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         update_method=async_update_data,
         update_interval=timedelta(seconds=interval),
     )
+    
+    # Store API client reference for cleanup
+    coordinator.api_client = api_client
+
+    # Register push callback for WebSocket client
+    if data_source == "websocket" and isinstance(api_client, EnpalWebSocketClient):
+        async def _on_push_data(result: dict) -> None:
+            """Handle push data from WebSocket - update coordinator immediately."""
+            nonlocal last_successful_data
+            sensors = result.get('sensors', [])
+            if sensors:
+                last_successful_data = sensors
+                coordinator.async_set_updated_data(sensors)
+                _LOGGER.debug(
+                    "[Enpal] Push update: %d sensors received", len(sensors)
+                )
+
+        api_client.set_data_callback(_on_push_data)
 
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN].setdefault("cumulative_energy_state", {
@@ -165,45 +201,50 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     entities.append(CumulativeEnergySensor(hass, coordinator, [source_sensor], interval))
     entities.append(DailyResetFromEntitySensor(hass, "sensor.inverter_energy_produced_total_dc"))
 
-    if entry.options.get("use_wallbox_addon", False):
-        _LOGGER.info("[Enpal] Wallbox add-on enabled, setting up coordinator")
+    if entry.options.get("use_wallbox", False):
+        _LOGGER.info("[Enpal] Wallbox control enabled, setting up coordinator")
 
-        api_client = WallboxApiClient(hass)
-        wallbox_data = {}
+        # Use shared wallbox client from entry data
+        entry_data = hass.data[DOMAIN].get(entry.entry_id, {})
+        wallbox_api_client = entry_data.get("wallbox_client")
+        if wallbox_api_client is None:
+            _LOGGER.error("[Enpal] No wallbox client available, skipping wallbox sensors")
+        else:
+            wallbox_data = {}
 
-        async def async_wallbox_update():
-            nonlocal wallbox_data
-            try:
-                data = await api_client.get_status()
-                if data is None:
-                    raise Exception("Wallbox API returned None")
-                
-                _LOGGER.debug("[Enpal] Wallbox status data: %s", data)
-                wallbox_data = data
-                return data
-            except Exception as e:
-                if wallbox_data:
-                    _LOGGER.warning("[Enpal] Wallbox update failed - using last known data: %s", e)
-                    return wallbox_data
-                else:
-                    _LOGGER.warning("[Enpal] Wallbox update failed - no previous data yet: %s", e)
-                    raise UpdateFailed(f"Wallbox update failed and no previous data: {e}")
+            async def async_wallbox_update():
+                nonlocal wallbox_data
+                try:
+                    data = await wallbox_api_client.get_status()
+                    if data is None:
+                        raise Exception("Wallbox API returned None")
+                    
+                    _LOGGER.debug("[Enpal] Wallbox status data: %s", data)
+                    wallbox_data = data
+                    return data
+                except Exception as e:
+                    if wallbox_data:
+                        _LOGGER.warning("[Enpal] Wallbox update failed - using last known data: %s", e)
+                        return wallbox_data
+                    else:
+                        _LOGGER.warning("[Enpal] Wallbox update failed - no previous data yet: %s", e)
+                        raise UpdateFailed(f"Wallbox update failed and no previous data: {e}")
 
-        wallbox_coordinator = DataUpdateCoordinator(
-            hass,
-            logger=_LOGGER,
-            name="Wallbox Status",
-            update_method=async_wallbox_update,
-            update_interval=timedelta(seconds=interval),
-        )
+            wallbox_coordinator = DataUpdateCoordinator(
+                hass,
+                logger=_LOGGER,
+                name="Wallbox Status",
+                update_method=async_wallbox_update,
+                update_interval=timedelta(seconds=interval),
+            )
 
-        hass.async_create_task(wallbox_coordinator.async_refresh())
+            hass.async_create_task(wallbox_coordinator.async_refresh())
 
-        entities.extend([
-            WallboxModeSensor(wallbox_coordinator),
-            WallboxStatusSensor(wallbox_coordinator),
-        ])
-        _LOGGER.debug("[Enpal] Wallbox-Sensoren hinzugefügt")
+            entities.extend([
+                WallboxModeSensor(wallbox_coordinator),
+                WallboxStatusSensor(wallbox_coordinator),
+            ])
+            _LOGGER.debug("[Enpal] Wallbox-Sensoren hinzugefügt")
 
     async_add_entities(entities)
 
