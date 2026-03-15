@@ -102,23 +102,8 @@ def mock_sensor_dict():
     }
 
 @pytest.fixture
-def hass_coordinator(hass: HomeAssistant):
-    async def _update_method():
-        return [{
-            "name": "Test Sensor",
-            "value": 987.65,
-            "unit": "kWh",
-            "device_class": "energy",
-            "enpal_last_update": "2024-06-01T12:30:00",
-        }]
-    coordinator = DataUpdateCoordinator(
-        hass,
-        logger=None,
-        name="test",
-        update_method=_update_method,
-        update_interval=timedelta(seconds=30),
-    )
-    return coordinator
+def hass_coordinator():
+    return DummyCoordinator()
 
 @pytest.mark.asyncio
 async def test_build_energy_sensor_full(hass: HomeAssistant, mock_sensor_dict, hass_coordinator):
