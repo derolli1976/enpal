@@ -261,7 +261,8 @@ class CumulativeEnergySensor(SensorEntity, RestoreEntity):
         self._coordinator = coordinator
         self._source_candidates = [make_id(name) for name in sensor_names]
         self._active_source_uid = None  # Will be determined from available sensors
-        self._interval_hours = interval_seconds / 3600
+        self._fallback_interval_hours = interval_seconds / 3600
+        self._last_update_time = None  # Track real elapsed time between updates
         self._state = self.hass.data[DOMAIN]["cumulative_energy_state"]
         self._value = None
         self._last_updated = None
@@ -309,16 +310,32 @@ class CumulativeEnergySensor(SensorEntity, RestoreEntity):
                 return
         
         # Now process the update with the active source
+        now = datetime.now()
         for sensor in self._coordinator.data:
             if make_id(sensor["name"]) == self._active_source_uid:
                 try:
                     power_watt = float(sensor["value"])
-                    energy_kwh = power_watt * self._interval_hours / 1000
+
+                    # Use actual elapsed time between updates instead of
+                    # the configured interval.  In WebSocket mode, push
+                    # updates can arrive much more frequently than the
+                    # polling interval, which would otherwise multiply
+                    # the energy by the wrong factor.
+                    if self._last_update_time is not None:
+                        elapsed_hours = (now - self._last_update_time).total_seconds() / 3600
+                    else:
+                        # First update after start/restore — use the
+                        # configured interval as a reasonable fallback.
+                        elapsed_hours = self._fallback_interval_hours
+
+                    energy_kwh = power_watt * elapsed_hours / 1000
                     if self._value is None:
                         self._value = 0.0
                     self._value += energy_kwh
-                    self._last_updated = datetime.now().isoformat()
-                    _LOGGER.debug("[Enpal] +%.5f kWh -> Total: %.3f kWh", energy_kwh, self._value)
+                    self._last_update_time = now
+                    self._last_updated = now.isoformat()
+                    _LOGGER.debug("[Enpal] +%.5f kWh (%.1fs elapsed) -> Total: %.3f kWh",
+                                  energy_kwh, elapsed_hours * 3600, self._value)
                 except Exception as e:
                     _LOGGER.warning("[Enpal] Error in energy calculation: %s", e)
                 break
