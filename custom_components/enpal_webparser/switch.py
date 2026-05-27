@@ -18,6 +18,7 @@
 #
 
 import asyncio
+import time
 from functools import cached_property
 import logging
 
@@ -59,6 +60,8 @@ class EnpalWallboxSwitch(SwitchEntity):
         self._attr_unique_id = "enpal_wallbox_charging_switch"
         self._is_on = False
         self._pending_state = None
+        self._pending_since: float = 0
+        self._pending_grace_period: float = 10.0
 
     @property
     def is_on(self):
@@ -95,7 +98,9 @@ class EnpalWallboxSwitch(SwitchEntity):
         status_entity = self._hass.states.get("sensor.wallbox_status")
         if not status_entity or status_entity.state in ("unavailable", "unknown", None):
             _LOGGER.warning("sensor.wallbox_status not found or unavailable")
-            self._is_on = False  
+            # Don't overwrite state if a pending change is still in grace period
+            if self._pending_state is None:
+                self._is_on = False  
             return
 
         status = status_entity.state.lower()
@@ -106,8 +111,23 @@ class EnpalWallboxSwitch(SwitchEntity):
                 _LOGGER.debug("Wallbox switch state confirmed by sensor: %s", status)
                 self._is_on = new_state
                 self._pending_state = None
+                self._pending_since = 0
             else:
-                _LOGGER.debug("Wallbox switch state pending: requested=%s, sensor=%s", self._pending_state, new_state)
+                elapsed = time.monotonic() - self._pending_since
+                if elapsed < self._pending_grace_period:
+                    _LOGGER.debug(
+                        "Wallbox switch state pending (%.1fs/%ss): requested=%s, sensor=%s",
+                        elapsed, self._pending_grace_period,
+                        self._pending_state, new_state,
+                    )
+                else:
+                    _LOGGER.info(
+                        "Wallbox switch pending state not confirmed after %.0fs, accepting sensor value",
+                        elapsed,
+                    )
+                    self._is_on = new_state
+                    self._pending_state = None
+                    self._pending_since = 0
         else:
             self._is_on = new_state
 
@@ -115,24 +135,18 @@ class EnpalWallboxSwitch(SwitchEntity):
         """Turn on the wallbox charging."""
         success = await self._api_client.call_and_refresh_sensors(
             "/start",
-            sensor_entities=[
-                "sensor.wallbox_status",
-                "sensor.wallbox_lademodus"
-            ]
         )
         if success:
             self._pending_state = True
+            self._pending_since = time.monotonic()
             self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs):
         """Turn off the wallbox charging."""
         success = await self._api_client.call_and_refresh_sensors(
             "/stop",
-            sensor_entities=[
-                "sensor.wallbox_status",
-                "sensor.wallbox_lademodus"
-            ]
         )
         if success:
             self._pending_state = False
+            self._pending_since = time.monotonic()
             self.async_write_ha_state()

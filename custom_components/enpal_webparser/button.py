@@ -113,12 +113,8 @@ class EnpalWallboxButton(ButtonEntity):
             _LOGGER.error("[Enpal] Unknown action: %s", self._action)
             return
         
-        # Call API and refresh sensors
+        # Call API and refresh coordinator directly
         endpoint = f"/{self._action}"
         await self._api_client.call_and_refresh_sensors(
             endpoint,
-            sensor_entities=[
-                "sensor.wallbox_lademodus",
-                "sensor.wallbox_status",
-            ]
         )

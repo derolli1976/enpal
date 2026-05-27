@@ -29,7 +29,8 @@
           "interval": "Abfrageintervall (in Sekunden) - Weniger als 60 Sekunden wird nicht empfohlen!",
           "timeout": "HTTP-Timeout (in Sekunden, 10-120) - Erhöhen, wenn Sensoren häufig als nicht verfügbar angezeigt werden",
           "groups": "Sensorgruppen auswählen",
-          "use_wallbox": "Wallbox-Steuerung aktivieren (WebSocket-Modus: direkte Verbindung, HTML-Modus: erfordert Wallbox Add-on)"
+          "use_wallbox": "Wallbox-Steuerung aktivieren (WebSocket-Modus: direkte Verbindung, HTML-Modus: erfordert Wallbox Add-on)",
+          "wallbox_poll_interval": "Wallbox-Abfrageintervall (in Sekunden, 5-300) - Wie oft der Wallbox-Status abgerufen wird"
         }
       }
     },
@@ -53,7 +54,8 @@
           "interval": "Abfrageintervall (in Sekunden) - Weniger als 60 Sekunden wird nicht empfohlen!",
           "timeout": "HTTP-Timeout (in Sekunden, 10-120) - Erhöhen, wenn Sensoren häufig als nicht verfügbar angezeigt werden",
           "groups": "Sensorgruppen auswählen",
-          "use_wallbox": "Wallbox-Steuerung aktivieren (WebSocket-Modus: direkte Verbindung, HTML-Modus: erfordert Wallbox Add-on)"
+          "use_wallbox": "Wallbox-Steuerung aktivieren (WebSocket-Modus: direkte Verbindung, HTML-Modus: erfordert Wallbox Add-on)",
+          "wallbox_poll_interval": "Wallbox-Abfrageintervall (in Sekunden, 5-300) - Wie oft der Wallbox-Status abgerufen wird"
         }
       }
     },

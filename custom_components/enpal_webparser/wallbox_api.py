@@ -59,14 +59,24 @@ class WallboxApiClient:
         self._enpal_base_url = enpal_base_url
         self._use_native = use_native
         self._blazor_client = None
+        self._wallbox_coordinator = None
 
         if use_native:
             _LOGGER.info("[Enpal] WallboxApiClient using native Blazor mode (URL: %s)", enpal_base_url)
         else:
             _LOGGER.debug("[Enpal] WallboxApiClient using legacy addon mode (URL: %s)", self._base_url)
 
+    def set_wallbox_coordinator(self, coordinator) -> None:
+        """Set the wallbox coordinator for direct refresh after actions."""
+        self._wallbox_coordinator = coordinator
+
     async def _ensure_blazor_client(self) -> bool:
-        """Ensure the native Blazor client is connected and not stale."""
+        """Ensure the native Blazor client instance exists.
+
+        Connection management is handled internally by the BlazorClient
+        (get_wallbox_data and click_button acquire the connection lock
+        and connect/refresh as needed).
+        """
         if not self._use_native:
             return False
 
@@ -75,7 +85,7 @@ class WallboxApiClient:
         if self._blazor_client is None:
             self._blazor_client = WallboxBlazorClient(self._enpal_base_url)
 
-        return await self._blazor_client.ensure_fresh_connection()
+        return True
 
     async def close(self) -> None:
         """Close the native Blazor client if active."""
@@ -219,17 +229,19 @@ class WallboxApiClient:
     async def call_and_refresh_sensors(
         self,
         endpoint: str,
-        sensor_entities: list[str],
-        wait_time: float = 2.0
+        sensor_entities: list[str] | None = None,
+        wait_time: float = 1.5
     ) -> bool:
-        """Call API endpoint and refresh related sensors.
+        """Call API endpoint and refresh the wallbox coordinator directly.
         
         For native mode, the endpoint is mapped to the corresponding action.
         For legacy mode, it calls the addon HTTP endpoint directly.
+        After a successful action, the wallbox coordinator is refreshed
+        directly (bypassing debounce) to get immediate sensor updates.
         
         Args:
             endpoint: API endpoint to call (e.g. "/start", "/set_eco")
-            sensor_entities: List of sensor entity IDs to refresh
+            sensor_entities: Unused, kept for backward compatibility
             wait_time: Seconds to wait before refreshing sensors
             
         Returns:
@@ -253,17 +265,12 @@ class WallboxApiClient:
         else:
             success = await self._post(endpoint)
         
-        if success and sensor_entities:
-            # Wait for wallbox to process the change
+        if success and self._wallbox_coordinator:
+            # Wait for wallbox to process the change, then refresh coordinator directly
             await asyncio.sleep(wait_time)
-            
-            # Trigger sensor updates
-            await self._hass.services.async_call(
-                "homeassistant",
-                "update_entity",
-                {"entity_id": sensor_entities},
-                blocking=True
-            )
-            _LOGGER.debug("[Enpal] Triggered refresh for sensors: %s", sensor_entities)
+            await self._wallbox_coordinator.async_refresh()
+            _LOGGER.debug("[Enpal] Coordinator refreshed after action %s", endpoint)
+        elif success:
+            _LOGGER.warning("[Enpal] No wallbox coordinator set — sensors may update slowly")
         
         return success

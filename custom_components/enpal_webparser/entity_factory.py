@@ -17,16 +17,20 @@
 # See README.md for setup and usage instructions.
 #
 
+import logging
 from functools import cached_property
 
 from homeassistant.components.sensor import SensorEntity, SensorDeviceClass
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, CoordinatorEntity
 from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.restore_state import RestoreEntity
 
 from .utils import make_id
 from .const import ICON_MAP, STATE_CLASS_OVERRIDES
 
 import re
+
+_LOGGER = logging.getLogger(__name__)
 
 
 def _display_name(name: str, group: str) -> str:
@@ -177,7 +181,24 @@ class EnpalWallboxPowerSensor(EnpalBaseSensor):
         return attrs
 
 
-class EnpalEnergySensor(EnpalBaseSensor):
+class EnpalEnergySensor(EnpalBaseSensor, RestoreEntity):
+    """Energy sensor with monotonic guard and availability filter.
+
+    Protects against Home Assistant's `total_increasing` reset detection
+    misfiring when the source sensor temporarily becomes unavailable or
+    reports a transient lower/zero value (e.g. after network glitches).
+
+    Behaviour:
+      * Tracks the highest valid value ever seen (`_last_valid_value`).
+      * If the raw value is missing/None/non-numeric, reports the cached
+        last valid value (sensor stays available so HA does not log a
+        gap that could be interpreted as a reset).
+      * If the raw value is lower than the cached value, the cached value
+        is kept (suppresses short dips that would look like a reset).
+      * If we never saw a valid value yet, the sensor reports unavailable.
+      * The cached value is restored across HA restarts.
+    """
+
     def __init__(self, sensor: dict, coordinator: DataUpdateCoordinator):
         super().__init__(sensor, coordinator)
         # Default: Energy counter is total_increasing
@@ -186,3 +207,68 @@ class EnpalEnergySensor(EnpalBaseSensor):
         sensor_id = self._attr_unique_id
         if sensor_id in STATE_CLASS_OVERRIDES:
             self._attr_state_class = STATE_CLASS_OVERRIDES[sensor_id]
+
+        self._last_valid_value: float | None = None
+
+    async def async_added_to_hass(self):
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state and last_state.state not in (None, "unknown", "unavailable"):
+            try:
+                self._last_valid_value = float(last_state.state)
+                _LOGGER.debug(
+                    "[Enpal] Restored last valid energy value for %s: %s",
+                    self._attr_unique_id, self._last_valid_value,
+                )
+            except (TypeError, ValueError):
+                pass
+
+    def _coerce_float(self, value):
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    @property
+    def native_value(self):
+        raw = self._coerce_float(self._sensor.get("value"))
+        if raw is None:
+            # Source missing/invalid: hold last good value (or unavailable)
+            return self._last_valid_value
+        if self._last_valid_value is None or raw >= self._last_valid_value:
+            self._last_valid_value = raw
+            return raw
+        # raw < cached: likely a transient dip, keep cached value
+        _LOGGER.debug(
+            "[Enpal] Suppressing decreasing energy value for %s: raw=%s cached=%s",
+            self._attr_unique_id, raw, self._last_valid_value,
+        )
+        return self._last_valid_value
+
+    @property
+    def available(self) -> bool:
+        if not super().available:
+            return False
+        # Available as long as we have any valid value (current or cached)
+        if self._coerce_float(self._sensor.get("value")) is not None:
+            return True
+        return self._last_valid_value is not None
+
+    @property
+    def extra_state_attributes(self):
+        attrs = dict(super().extra_state_attributes or {})
+        raw = self._sensor.get("value")
+        raw_float = self._coerce_float(raw)
+        if raw_float is None and self._last_valid_value is not None:
+            attrs["enpal_raw_value"] = raw
+            attrs["enpal_value_source"] = "cached (source unavailable)"
+        elif (
+            raw_float is not None
+            and self._last_valid_value is not None
+            and raw_float < self._last_valid_value
+        ):
+            attrs["enpal_raw_value"] = raw_float
+            attrs["enpal_value_source"] = "cached (raw < last valid)"
+        return attrs

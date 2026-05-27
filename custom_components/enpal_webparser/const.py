@@ -24,6 +24,9 @@ DOMAIN = "enpal_webparser"
 DEFAULT_URL = "http://192.168.1.1/deviceMessages"  # Placeholder - use discovery or check router
 DEFAULT_INTERVAL = 60
 DEFAULT_TIMEOUT = 30
+# Wallbox status polling is lightweight (single HTTP GET) and can run much
+# more frequently than the main sensor interval to catch external changes.
+DEFAULT_WALLBOX_POLL_INTERVAL = 10
 
 DEFAULT_GROUPS = [
     "Wallbox",

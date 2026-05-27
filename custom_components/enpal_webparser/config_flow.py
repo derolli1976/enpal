@@ -36,6 +36,7 @@ from .const import (
     DEFAULT_TIMEOUT,
     DEFAULT_URL,
     DEFAULT_USE_WALLBOX,
+    DEFAULT_WALLBOX_POLL_INTERVAL,
     DOMAIN,
 )
 
@@ -133,6 +134,7 @@ def get_default_config(options: dict[str, Any] | None = None) -> dict[str, Any]:
         "timeout": src.get("timeout", DEFAULT_TIMEOUT),
         "groups": src.get("groups", DEFAULT_GROUPS),
         "use_wallbox": src.get("use_wallbox", DEFAULT_USE_WALLBOX),
+        "wallbox_poll_interval": src.get("wallbox_poll_interval", DEFAULT_WALLBOX_POLL_INTERVAL),
         "data_source": src.get("data_source", "auto"),  # auto, websocket, html
     }
 
@@ -145,6 +147,7 @@ def get_form_schema(config: dict[str, Any]) -> vol.Schema:
             vol.Required("timeout", default=cast(Any, config["timeout"])): vol.All(int, vol.Range(min=10, max=120)),
             vol.Optional("groups", default=cast(Any, config["groups"])): cv.multi_select(DEFAULT_GROUPS),
             vol.Optional("use_wallbox", default=cast(Any, config["use_wallbox"])): bool,
+            vol.Optional("wallbox_poll_interval", default=cast(Any, config["wallbox_poll_interval"])): vol.All(int, vol.Range(min=5, max=300)),
             vol.Optional("data_source", default=cast(Any, config["data_source"])): vol.In({
                 "auto": "Auto-detect (recommended)",
                 "websocket": "WebSocket (real-time)",
@@ -196,6 +199,7 @@ async def process_user_input(hass, user_input: dict[str, Any]) -> tuple[dict[str
         "timeout": user_input.get("timeout", DEFAULT_TIMEOUT),
         "groups": user_input.get("groups", DEFAULT_GROUPS),
         "use_wallbox": user_input.get("use_wallbox", False),
+        "wallbox_poll_interval": user_input.get("wallbox_poll_interval", DEFAULT_WALLBOX_POLL_INTERVAL),
         "data_source": data_source,
     }, {}
 
@@ -377,6 +381,7 @@ class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             "timeout": DEFAULT_TIMEOUT,
             "groups": DEFAULT_GROUPS,
             "use_wallbox": DEFAULT_USE_WALLBOX,
+            "wallbox_poll_interval": DEFAULT_WALLBOX_POLL_INTERVAL,
             "data_source": "auto",
         }
         
@@ -418,6 +423,7 @@ class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         "timeout": user_input.get("timeout", DEFAULT_TIMEOUT),
                         "groups": user_input.get("groups", DEFAULT_GROUPS),
                         "use_wallbox": user_input.get("use_wallbox", False),
+                        "wallbox_poll_interval": user_input.get("wallbox_poll_interval", DEFAULT_WALLBOX_POLL_INTERVAL),
                         "data_source": data_source,
                     },
                 )
@@ -430,6 +436,7 @@ class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     vol.Required("timeout", default=config["timeout"]): vol.All(int, vol.Range(min=10, max=120)),
                     vol.Optional("groups", default=config["groups"]): cv.multi_select(DEFAULT_GROUPS),
                     vol.Optional("use_wallbox", default=config["use_wallbox"]): bool,
+                    vol.Optional("wallbox_poll_interval", default=config["wallbox_poll_interval"]): vol.All(int, vol.Range(min=5, max=300)),
                     vol.Optional("data_source", default=config["data_source"]): vol.In({
                         "auto": "Auto-detect (recommended)",
                         "websocket": "WebSocket (real-time)",
@@ -449,6 +456,7 @@ class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 vol.Required("timeout", default=config["timeout"]): vol.All(int, vol.Range(min=10, max=120)),
                 vol.Optional("groups", default=config["groups"]): cv.multi_select(DEFAULT_GROUPS),
                 vol.Optional("use_wallbox", default=config["use_wallbox"]): bool,
+                vol.Optional("wallbox_poll_interval", default=config["wallbox_poll_interval"]): vol.All(int, vol.Range(min=5, max=300)),
                 vol.Optional("data_source", default=config["data_source"]): vol.In({
                     "auto": "Auto-detect (recommended)",
                     "websocket": "WebSocket (real-time)",

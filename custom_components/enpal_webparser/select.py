@@ -19,6 +19,7 @@
 
 import asyncio
 import logging
+import time
 from functools import cached_property
 
 from homeassistant.components.select import SelectEntity
@@ -63,6 +64,10 @@ class EnpalWallboxModeSelect(SelectEntity):
         self._attr_options = list(WALLBOX_MODE_MAP.values())
         self._current_option = None
         self._pending_change = None
+        self._pending_since: float = 0  # monotonic timestamp when pending was set
+        # Minimum seconds a pending change is protected from being overwritten
+        # by a stale coordinator poll that still reports the old state.
+        self._pending_grace_period: float = 10.0
 
     async def async_added_to_hass(self):
         """Register state change listener when entity is added."""
@@ -96,7 +101,9 @@ class EnpalWallboxModeSelect(SelectEntity):
         mode_entity = self._hass.states.get("sensor.wallbox_lademodus")
         if not mode_entity or mode_entity.state in ("unavailable", "unknown", None):
             _LOGGER.warning("sensor.wallbox_lademodus not found or unavailable")
-            self._current_option = None
+            # Don't clear _current_option if we have a pending change — keeps UI stable
+            if not self._pending_change:
+                self._current_option = None
             return
 
         mode = mode_entity.state.lower()
@@ -112,12 +119,25 @@ class EnpalWallboxModeSelect(SelectEntity):
                 _LOGGER.debug("Pending wallbox mode %s confirmed by sensor.", new_option)
                 self._current_option = new_option
                 self._pending_change = None
+                self._pending_since = 0
             else:
-                _LOGGER.debug(
-                    "Wallbox mode change pending: %s (sensor reports %s)",
-                    self._pending_change,
-                    new_option,
-                )
+                elapsed = time.monotonic() - self._pending_since
+                if elapsed < self._pending_grace_period:
+                    # Still within grace period — ignore stale sensor value
+                    _LOGGER.debug(
+                        "Wallbox mode change pending (%.1fs/%ss): %s (sensor reports %s)",
+                        elapsed, self._pending_grace_period,
+                        self._pending_change, new_option,
+                    )
+                else:
+                    # Grace period expired — accept the sensor value
+                    _LOGGER.info(
+                        "Wallbox pending mode %s not confirmed after %.0fs, accepting sensor value %s",
+                        self._pending_change, elapsed, new_option,
+                    )
+                    self._current_option = new_option
+                    self._pending_change = None
+                    self._pending_since = 0
         else:
             self._current_option = new_option
 
@@ -129,10 +149,15 @@ class EnpalWallboxModeSelect(SelectEntity):
             return
         
         self._pending_change = option
+        self._pending_since = time.monotonic()
         self.async_write_ha_state()
 
-        # Call API and refresh sensors
-        await self._api_client.call_and_refresh_sensors(
+        # Call API and refresh coordinator directly
+        success = await self._api_client.call_and_refresh_sensors(
             f"/set_{key}",
-            sensor_entities=["sensor.wallbox_lademodus"]
         )
+        if not success:
+            _LOGGER.warning("[Enpal] Mode change to %s failed, clearing pending state", option)
+            self._pending_change = None
+            self._pending_since = 0
+            self.async_write_ha_state()

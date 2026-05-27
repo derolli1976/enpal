@@ -213,9 +213,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             _LOGGER.error("[Enpal] No wallbox client available, skipping wallbox sensors")
         else:
             wallbox_data = {}
+            wallbox_fetch_status = "pending"
+            wallbox_fetch_time = None
+            wallbox_fetch_error = None
 
             async def async_wallbox_update():
-                nonlocal wallbox_data
+                nonlocal wallbox_data, wallbox_fetch_status, wallbox_fetch_time, wallbox_fetch_error
                 try:
                     data = await wallbox_api_client.get_status()
                     if data is None:
@@ -223,28 +226,58 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                     
                     _LOGGER.debug("[Enpal] Wallbox status data: %s", data)
                     wallbox_data = data
+                    wallbox_fetch_status = "ok"
+                    wallbox_fetch_time = datetime.now().isoformat()
+                    wallbox_fetch_error = None
                     return data
                 except Exception as e:
+                    wallbox_fetch_time = datetime.now().isoformat()
+                    wallbox_fetch_error = str(e)
                     if wallbox_data:
                         _LOGGER.warning("[Enpal] Wallbox update failed - using last known data: %s", e)
+                        wallbox_fetch_status = "error (using cached)"
                         return wallbox_data
                     else:
                         _LOGGER.warning("[Enpal] Wallbox update failed - no previous data yet: %s", e)
+                        wallbox_fetch_status = "error"
                         raise UpdateFailed(f"Wallbox update failed and no previous data: {e}")
+
+            def get_wallbox_fetch_info() -> dict:
+                return {
+                    "last_fetch_status": wallbox_fetch_status,
+                    "last_fetch_time": wallbox_fetch_time,
+                    "last_fetch_error": wallbox_fetch_error,
+                }
+
+            from .const import DEFAULT_WALLBOX_POLL_INTERVAL
+            wallbox_poll_interval = entry.options.get(
+                "wallbox_poll_interval", DEFAULT_WALLBOX_POLL_INTERVAL
+            )
+            _LOGGER.info(
+                "[Enpal] Wallbox poll interval: %ss (main sensor interval: %ss)",
+                wallbox_poll_interval, interval,
+            )
 
             wallbox_coordinator = DataUpdateCoordinator(
                 hass,
                 logger=_LOGGER,
                 name="Wallbox Status",
                 update_method=async_wallbox_update,
-                update_interval=timedelta(seconds=interval),
+                update_interval=timedelta(seconds=wallbox_poll_interval),
             )
 
-            hass.async_create_task(wallbox_coordinator.async_refresh())
+            # Wire coordinator to API client for direct refresh after actions
+            wallbox_api_client.set_wallbox_coordinator(wallbox_coordinator)
+
+            # Await first refresh so sensors start with real data (no "unknown")
+            try:
+                await wallbox_coordinator.async_refresh()
+            except Exception:
+                _LOGGER.warning("[Enpal] Initial wallbox data fetch failed, will retry on next poll")
 
             entities.extend([
-                WallboxModeSensor(wallbox_coordinator),
-                WallboxStatusSensor(wallbox_coordinator),
+                WallboxModeSensor(wallbox_coordinator, get_wallbox_fetch_info),
+                WallboxStatusSensor(wallbox_coordinator, get_wallbox_fetch_info),
             ])
             _LOGGER.debug("[Enpal] Wallbox-Sensoren hinzugefügt")
 
@@ -428,13 +461,14 @@ class DailyResetFromEntitySensor(SensorEntity, RestoreEntity):
 
 
 class WallboxCoordinatorEntity(CoordinatorEntity, SensorEntity):
-    def __init__(self, coordinator, name, unique_id, key):
+    def __init__(self, coordinator, name, unique_id, key, fetch_info_fn=None):
         super().__init__(coordinator)
         self._attr_name = str(name)
         self._attr_unique_id = str(unique_id)
         self._key = key
         self._attr_icon = "mdi:ev-station"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
+        self._fetch_info_fn = fetch_info_fn
 
     @cached_property
     def device_info(self) -> DeviceInfo:
@@ -451,10 +485,20 @@ class WallboxCoordinatorEntity(CoordinatorEntity, SensorEntity):
             return self.coordinator.data.get(self._key)
         return None
 
+    @property
+    def extra_state_attributes(self) -> dict | None:
+        attrs = {}
+        if self.coordinator.data:
+            # Show the raw value directly from the last API response
+            attrs["last_raw_value"] = self.coordinator.data.get(self._key)
+        if self._fetch_info_fn:
+            attrs.update(self._fetch_info_fn())
+        return attrs if attrs else None
+
 class WallboxModeSensor(WallboxCoordinatorEntity):
-    def __init__(self, coordinator):
-        super().__init__(coordinator, "Wallbox Lademodus", "wallbox_mode", "mode")
+    def __init__(self, coordinator, fetch_info_fn=None):
+        super().__init__(coordinator, "Wallbox Lademodus", "wallbox_mode", "mode", fetch_info_fn)
 
 class WallboxStatusSensor(WallboxCoordinatorEntity):
-    def __init__(self, coordinator):
-        super().__init__(coordinator, "Wallbox Status", "wallbox_status", "status")
+    def __init__(self, coordinator, fetch_info_fn=None):
+        super().__init__(coordinator, "Wallbox Status", "wallbox_status", "status", fetch_info_fn)

@@ -55,6 +55,8 @@ class WallboxBlazorClient:
         self._status: Optional[str] = None
         self._invocation_counter: int = 100
         self._status_event = asyncio.Event()
+        self._render_event = asyncio.Event()  # Set on ANY RenderBatch arrival
+        self._connection_lock = asyncio.Lock()  # Serialize poll vs. click
         self._click_event = asyncio.Event()  # Set when JS.EndInvokeDotNet arrives
         self._click_error: Optional[str] = None
         self._pending_click_call_id: Optional[int] = None
@@ -182,6 +184,8 @@ class WallboxBlazorClient:
         """Click a wallbox button by name.
 
         Ensures the connection is active before clicking.
+        Uses _connection_lock to prevent concurrent poll/click operations
+        from disrupting the WebSocket connection.
 
         Args:
             button: One of 'start', 'stop', 'eco', 'full', 'solar', 'smart'
@@ -189,84 +193,85 @@ class WallboxBlazorClient:
         Returns:
             True if the click was sent and acknowledged
         """
-        _LOGGER.info("[Enpal Wallbox] Preparing to click '%s'", button)
-        if not await self.ensure_fresh_connection():
-            _LOGGER.error("[Enpal Wallbox] Failed to connect for click")
-            return False
-
-        handler_id = self._button_handlers.get(button)
-        if handler_id is None:
-            _LOGGER.error("[Enpal Wallbox] Unknown button: %s (available: %s)",
-                          button, list(self._button_handlers.keys()))
-            return False
-
-        _LOGGER.info("[Enpal Wallbox] Clicking button '%s' (handler %d)", button, handler_id)
-
-        # .NET 8 CircuitHub: dispatch events via BeginInvokeDotNetFromJS
-        # calling DispatchEventAsync on the renderer's DotNet object reference
-        self._dotnet_call_counter += 1
-        call_id = self._dotnet_call_counter
-        self._pending_click_call_id = call_id
-        self._click_event.clear()
-        self._click_error = None
-
-        event_descriptor = {
-            "eventHandlerId": handler_id,
-            "eventName": "click",
-            "eventFieldInfo": None,
-        }
-        event_args = {
-            "type": "click",
-            "detail": 1,
-            "screenX": 0, "screenY": 0,
-            "clientX": 0, "clientY": 0,
-            "offsetX": 0, "offsetY": 0,
-            "pageX": 0, "pageY": 0,
-            "movementX": 0, "movementY": 0,
-            "button": 0, "buttons": 0,
-            "ctrlKey": False, "shiftKey": False,
-            "altKey": False, "metaKey": False,
-        }
-        args_json = json.dumps([event_descriptor, event_args])
-        click_msg = [
-            1, {}, None,  # fire-and-forget (response comes via JS.EndInvokeDotNet)
-            "BeginInvokeDotNetFromJS",
-            [str(call_id), None, "DispatchEventAsync", self._renderer_interop_id, args_json],
-        ]
-
-        try:
-            await self._send_message(click_msg)
-            _LOGGER.debug("[Enpal Wallbox] Click message sent (call_id %d, renderer_id %d)",
-                          call_id, self._renderer_interop_id)
-
-            # Wait for JS.EndInvokeDotNet response from the server
-            try:
-                await asyncio.wait_for(self._click_event.wait(), timeout=10.0)
-            except asyncio.TimeoutError:
-                _LOGGER.warning("[Enpal Wallbox] No JS.EndInvokeDotNet response for click '%s' (call_id %d)", button, call_id)
+        async with self._connection_lock:
+            _LOGGER.info("[Enpal Wallbox] Preparing to click '%s'", button)
+            if not await self.ensure_fresh_connection():
+                _LOGGER.error("[Enpal Wallbox] Failed to connect for click")
                 return False
 
-            if self._click_error:
-                _LOGGER.error("[Enpal Wallbox] Server rejected click '%s': %s", button, self._click_error)
+            handler_id = self._button_handlers.get(button)
+            if handler_id is None:
+                _LOGGER.error("[Enpal Wallbox] Unknown button: %s (available: %s)",
+                              button, list(self._button_handlers.keys()))
                 return False
 
-            # Click was accepted — wait briefly for RenderBatch with status update
-            self._status_event.clear()
+            _LOGGER.info("[Enpal Wallbox] Clicking button '%s' (handler %d)", button, handler_id)
+
+            # .NET 8 CircuitHub: dispatch events via BeginInvokeDotNetFromJS
+            # calling DispatchEventAsync on the renderer's DotNet object reference
+            self._dotnet_call_counter += 1
+            call_id = self._dotnet_call_counter
+            self._pending_click_call_id = call_id
+            self._click_event.clear()
+            self._click_error = None
+
+            event_descriptor = {
+                "eventHandlerId": handler_id,
+                "eventName": "click",
+                "eventFieldInfo": None,
+            }
+            event_args = {
+                "type": "click",
+                "detail": 1,
+                "screenX": 0, "screenY": 0,
+                "clientX": 0, "clientY": 0,
+                "offsetX": 0, "offsetY": 0,
+                "pageX": 0, "pageY": 0,
+                "movementX": 0, "movementY": 0,
+                "button": 0, "buttons": 0,
+                "ctrlKey": False, "shiftKey": False,
+                "altKey": False, "metaKey": False,
+            }
+            args_json = json.dumps([event_descriptor, event_args])
+            click_msg = [
+                1, {}, None,  # fire-and-forget (response comes via JS.EndInvokeDotNet)
+                "BeginInvokeDotNetFromJS",
+                [str(call_id), None, "DispatchEventAsync", self._renderer_interop_id, args_json],
+            ]
+
             try:
-                await asyncio.wait_for(self._status_event.wait(), timeout=3.0)
-            except asyncio.TimeoutError:
-                pass  # Mode may not have changed (e.g. clicking current mode)
+                await self._send_message(click_msg)
+                _LOGGER.debug("[Enpal Wallbox] Click message sent (call_id %d, renderer_id %d)",
+                              call_id, self._renderer_interop_id)
 
-            _LOGGER.info("[Enpal Wallbox] Button '%s' clicked successfully. Mode=%s, Status=%s",
-                         button, self._mode, self._status)
-            return True
+                # Wait for JS.EndInvokeDotNet response from the server
+                try:
+                    await asyncio.wait_for(self._click_event.wait(), timeout=10.0)
+                except asyncio.TimeoutError:
+                    _LOGGER.warning("[Enpal Wallbox] No JS.EndInvokeDotNet response for click '%s' (call_id %d)", button, call_id)
+                    return False
 
-        except Exception as e:
-            _LOGGER.error("[Enpal Wallbox] Click failed: %s", e, exc_info=True)
-            self.connected = False
-            return False
-        finally:
-            self._pending_click_call_id = None
+                if self._click_error:
+                    _LOGGER.error("[Enpal Wallbox] Server rejected click '%s': %s", button, self._click_error)
+                    return False
+
+                # Click was accepted — wait briefly for RenderBatch with status update
+                self._status_event.clear()
+                try:
+                    await asyncio.wait_for(self._status_event.wait(), timeout=3.0)
+                except asyncio.TimeoutError:
+                    pass  # Mode may not have changed (e.g. clicking current mode)
+
+                _LOGGER.info("[Enpal Wallbox] Button '%s' clicked successfully. Mode=%s, Status=%s",
+                             button, self._mode, self._status)
+                return True
+
+            except Exception as e:
+                _LOGGER.error("[Enpal Wallbox] Click failed: %s", e, exc_info=True)
+                self.connected = False
+                return False
+            finally:
+                self._pending_click_call_id = None
 
     async def start_charging(self) -> bool:
         return await self.click_button("start")
@@ -281,23 +286,36 @@ class WallboxBlazorClient:
     async def get_wallbox_data(self) -> Optional[Dict]:
         """Return current wallbox status as a dict (compatible with old addon API).
 
-        Performs a lightweight HTTP GET to /wallbox on every call so that
-        external status changes (e.g. via the Enpal app) are picked up
-        within the normal polling interval.  The existing WebSocket
-        connection is *not* disturbed — it stays open for button clicks.
+        Uses the WebSocket connection to get fresh data on every call.
+        First tries a lightweight re-render request (OnLocationChanged) on the
+        existing connection.  If that doesn't produce a RenderBatch within 3 s,
+        falls back to a full reconnect.  A lock prevents concurrent poll and
+        click operations from interfering with each other.
         """
-        # Lightweight poll: GET /wallbox HTML and parse pre-rendered status
-        mode, status = await self._fetch_status_via_http()
-        if mode:
-            self._mode = mode
-        if status:
-            self._status = status
-
-        # Fallback: if we never got any status yet, ensure WebSocket is up
-        # so the initial RenderBatch seeds the values.
-        if self._mode is None and self._status is None:
-            if not await self.ensure_fresh_connection():
-                return None
+        async with self._connection_lock:
+            if not self.connected or not self.ws or self.ws.closed:
+                # No live connection — do full connect
+                if not await self.connect():
+                    if self._mode or self._status:
+                        return {
+                            "mode": self._mode.lower() if self._mode else None,
+                            "status": self._status.lower() if self._status else None,
+                            "success": True,
+                        }
+                    return None
+            else:
+                # Connection alive — try lightweight refresh first
+                if not await self._request_status_refresh():
+                    # Refresh didn't produce a RenderBatch, do full reconnect
+                    _LOGGER.debug("[Enpal Wallbox] Lightweight refresh failed, reconnecting")
+                    if not await self.connect():
+                        if self._mode or self._status:
+                            return {
+                                "mode": self._mode.lower() if self._mode else None,
+                                "status": self._status.lower() if self._status else None,
+                                "success": True,
+                            }
+                        return None
 
         return {
             "mode": self._mode.lower() if self._mode else None,
@@ -305,42 +323,37 @@ class WallboxBlazorClient:
             "success": True,
         }
 
-    async def _fetch_status_via_http(self) -> tuple:
-        """Fetch current mode/status via a lightweight HTTP GET to /wallbox.
+    async def _request_status_refresh(self) -> bool:
+        """Request fresh status by sending OnLocationChanged on the existing WS.
 
-        Blazor Server pre-renders the page with the current component state,
-        so a simple GET returns HTML containing 'Mode Eco' / 'Status Connected'
-        etc.  We reuse the existing ``_extract_status_text`` parser.
+        Blazor Server processes OnLocationChanged as a navigation event which
+        triggers the Router component to re-render the /wallbox page.  The
+        server then sends a fresh RenderBatch with current mode/status values.
+
+        This is much lighter than a full reconnect (single WS message vs.
+        HTTP GET + negotiate + WS handshake + circuit start).
 
         Returns:
-            (mode, status) tuple — either value may be None on failure.
+            True if a RenderBatch was received after the request.
         """
-        own_session = None
-        try:
-            session = self.session
-            if session is None or session.closed:
-                own_session = aiohttp.ClientSession(
-                    connector=aiohttp.TCPConnector(use_dns_cache=False),
-                )
-                session = own_session
+        if not self.connected or not self.ws or self.ws.closed:
+            return False
 
-            async with session.get(
-                f"{self.base_url}/wallbox",
-                timeout=aiohttp.ClientTimeout(total=10),
-            ) as resp:
-                if resp.status != 200:
-                    _LOGGER.debug(
-                        "[Enpal Wallbox] HTTP status poll returned %s", resp.status
-                    )
-                    return None, None
-                html = await resp.text()
-                return self._extract_status_text(html.encode("utf-8"))
+        self._render_event.clear()
+        try:
+            msg = [1, {}, None, "OnLocationChanged",
+                   [self.base_url + "/wallbox", None, False]]
+            await self._send_message(msg)
         except Exception as e:
-            _LOGGER.debug("[Enpal Wallbox] HTTP status poll failed: %s", e)
-            return None, None
-        finally:
-            if own_session and not own_session.closed:
-                await own_session.close()
+            _LOGGER.debug("[Enpal Wallbox] Failed to send status refresh: %s", e)
+            return False
+
+        try:
+            await asyncio.wait_for(self._render_event.wait(), timeout=3.0)
+            return True
+        except asyncio.TimeoutError:
+            _LOGGER.debug("[Enpal Wallbox] No RenderBatch after OnLocationChanged (timeout)")
+            return False
 
     # ------------------------------------------------------------------
     # Internal: WebSocket message loop
@@ -530,6 +543,9 @@ class WallboxBlazorClient:
             self._status_event.set()
             _LOGGER.debug("[Enpal Wallbox] Status update: Mode=%s, Status=%s",
                           self._mode, self._status)
+
+        # Signal that a RenderBatch was received (for status refresh polling)
+        self._render_event.set()
 
     @staticmethod
     def _find_onclick_handlers(data: bytes) -> List[int]:
