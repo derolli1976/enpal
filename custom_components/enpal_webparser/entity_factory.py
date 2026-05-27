@@ -124,14 +124,57 @@ class EnpalBaseSensor(CoordinatorEntity, SensorEntity):
         self._handle_coordinator_update()
 
 
-def build_sensor_entity(sensor: dict, coordinator: DataUpdateCoordinator) -> SensorEntity:
+# Wallbox sensors whose value must be forced to 0 when not actively charging.
+# Works around an Enpal firmware bug where these values freeze after charging ends.
+_WALLBOX_ZERO_OVERRIDE_IDS = {
+    "power_wallbox_connector_1_charging",
+    "current_wallbox_connector_1_phase_a",
+    "current_wallbox_connector_1_phase_b",
+    "current_wallbox_connector_1_phase_c",
+}
+
+
+def build_sensor_entity(
+    sensor: dict,
+    coordinator: DataUpdateCoordinator,
+    use_wallbox: bool = False,
+) -> SensorEntity:
     """
     Factory function: Builds the appropriate sensor entity.
     Extendable for special cases or subclasses.
     """
     if sensor.get("device_class") == "energy":
         return EnpalEnergySensor(sensor, coordinator)
+    if use_wallbox and make_id(sensor.get("name", "")) in _WALLBOX_ZERO_OVERRIDE_IDS:
+        return EnpalWallboxPowerSensor(sensor, coordinator)
     return EnpalBaseSensor(sensor, coordinator)
+
+
+class EnpalWallboxPowerSensor(EnpalBaseSensor):
+    """Wallbox power/current sensor that reports 0 when not charging.
+
+    Works around an Enpal firmware bug where power and current values
+    freeze at their last reading after a charging session ends.
+    """
+
+    _WALLBOX_STATUS_ENTITY = "sensor.wallbox_status"
+
+    @property
+    def native_value(self):
+        raw = self._sensor.get("value")
+        status_state = self.hass.states.get(self._WALLBOX_STATUS_ENTITY)
+        if status_state is not None and status_state.state != "charging":
+            return 0
+        return raw
+
+    @property
+    def extra_state_attributes(self):
+        attrs = super().extra_state_attributes
+        status_state = self.hass.states.get(self._WALLBOX_STATUS_ENTITY)
+        if status_state is not None and status_state.state != "charging":
+            attrs["enpal_raw_value"] = self._sensor.get("value")
+            attrs["enpal_zero_reason"] = "wallbox not charging"
+        return attrs
 
 
 class EnpalEnergySensor(EnpalBaseSensor):

@@ -150,10 +150,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     for sensor in coordinator.data:
         _LOGGER.info("[Enpal]   Name: %s -> UID: %s", sensor["name"], make_id(sensor["name"]))
 
+    use_wallbox = entry.options.get("use_wallbox", False)
+
     entities = []
     for sensor_dict in coordinator.data:
         _LOGGER.debug("[Enpal] Adding sensor entity: %s", sensor_dict["name"])
-        entities.append(build_sensor_entity(sensor_dict, coordinator))
+        entities.append(build_sensor_entity(sensor_dict, coordinator, use_wallbox=use_wallbox))
 
 
     # Create cumulative energy sensor with smart fallback for different inverter types

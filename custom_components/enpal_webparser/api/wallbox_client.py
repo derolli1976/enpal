@@ -281,16 +281,66 @@ class WallboxBlazorClient:
     async def get_wallbox_data(self) -> Optional[Dict]:
         """Return current wallbox status as a dict (compatible with old addon API).
 
-        Ensures the WebSocket connection is alive so that server-push
-        RenderBatches keep the cached mode/status up to date.
+        Performs a lightweight HTTP GET to /wallbox on every call so that
+        external status changes (e.g. via the Enpal app) are picked up
+        within the normal polling interval.  The existing WebSocket
+        connection is *not* disturbed — it stays open for button clicks.
         """
-        if not await self.ensure_fresh_connection():
-            return None
+        # Lightweight poll: GET /wallbox HTML and parse pre-rendered status
+        mode, status = await self._fetch_status_via_http()
+        if mode:
+            self._mode = mode
+        if status:
+            self._status = status
+
+        # Fallback: if we never got any status yet, ensure WebSocket is up
+        # so the initial RenderBatch seeds the values.
+        if self._mode is None and self._status is None:
+            if not await self.ensure_fresh_connection():
+                return None
+
         return {
             "mode": self._mode.lower() if self._mode else None,
             "status": self._status.lower() if self._status else None,
             "success": True,
         }
+
+    async def _fetch_status_via_http(self) -> tuple:
+        """Fetch current mode/status via a lightweight HTTP GET to /wallbox.
+
+        Blazor Server pre-renders the page with the current component state,
+        so a simple GET returns HTML containing 'Mode Eco' / 'Status Connected'
+        etc.  We reuse the existing ``_extract_status_text`` parser.
+
+        Returns:
+            (mode, status) tuple — either value may be None on failure.
+        """
+        own_session = None
+        try:
+            session = self.session
+            if session is None or session.closed:
+                own_session = aiohttp.ClientSession(
+                    connector=aiohttp.TCPConnector(use_dns_cache=False),
+                )
+                session = own_session
+
+            async with session.get(
+                f"{self.base_url}/wallbox",
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as resp:
+                if resp.status != 200:
+                    _LOGGER.debug(
+                        "[Enpal Wallbox] HTTP status poll returned %s", resp.status
+                    )
+                    return None, None
+                html = await resp.text()
+                return self._extract_status_text(html.encode("utf-8"))
+        except Exception as e:
+            _LOGGER.debug("[Enpal Wallbox] HTTP status poll failed: %s", e)
+            return None, None
+        finally:
+            if own_session and not own_session.closed:
+                await own_session.close()
 
     # ------------------------------------------------------------------
     # Internal: WebSocket message loop
