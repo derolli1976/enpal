@@ -10,13 +10,25 @@
 [![Pytest](https://github.com/derolli1976/enpal/actions/workflows/tests.yaml/badge.svg)](https://github.com/derolli1976/enpal/actions/workflows/tests.yaml)
 [![CodeQL](https://github.com/derolli1976/enpal/actions/workflows/codeql.yaml/badge.svg)](https://github.com/derolli1976/enpal/actions/workflows/codeql.yaml)
 [![Bandit](https://github.com/derolli1976/enpal/actions/workflows/bandit.yaml/badge.svg)](https://github.com/derolli1976/enpal/actions/workflows/bandit.yaml)
-![Enpal_version](https://img.shields.io/badge/tested%20with%20enpal%20firmware-Solar%20Rel.%208.48.0--518670%20(20.11.2025)-blue)
+![Enpal_version](https://img.shields.io/badge/tested%20with%20enpal%20firmware-Solar%20Rel.%208.50.1--773465%20(27.05.2026)-blue)
 
 [![hacs_install](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=derolli1976&repository=enpal&category=integration)
 
 <a href="https://buymeacoffee.com/derolli1976" target="_blank"><img src="https://cdn.buymeacoffee.com/buttons/default-orange.png" alt="Buy Me A Coffee" height="41" width="174"></a>
 
 Eine Home Assistant Custom Integration zur lokalen Überwachung von Enpal Solaranlagen. Liest Daten direkt aus der lokalen Weboberfläche der Enpal Box und stellt über 100 Sensoren für Solaranlage, Batterie, Wallbox und Wärmepumpe bereit.
+
+---
+
+> ## ⚠️ Beta 2.9.9b3 — Firmware 8.50 erforderlich
+>
+> Diese **Beta-Version** ist auf die Enpal-Firmware **Solar Rel. 8.50.1-773465 (27.05.2026)** ausgerichtet und damit getestet.
+>
+> - Der neue **WebSocket-Modus** (Echtzeit-Daten) und die **native Wallbox-Steuerung ohne Add-on** setzen Firmware **8.50** voraus.
+> - Das **inkrementelle RenderBatch-Parsing** (neu in 2.9.9b3, reduziert die CPU-Last der Enpal Box deutlich) basiert auf dem Datenformat von Firmware **8.50**.
+> - Auf älteren Firmware-Ständen funktioniert weiterhin der **HTML-Polling-Modus (Legacy)**, jedoch ohne die neuen Echtzeit- und Wallbox-Funktionen.
+> - 🅿️ **Wichtig im WebSocket-Modus:** Das **Wallbox Add-on / die Wallbox App wird nicht mehr benötigt** — die Wallbox wird direkt von der Integration gesteuert. Das alte Add-on / die App sollte in diesem Fall unbedingt **deaktiviert (gestoppt)** werden, um Konflikte zu vermeiden.
+> - 💾 Vor der Installation unbedingt ein **Home Assistant-Backup** anlegen. Details in den [Release Notes 2.9.9b3](docs/RELEASE_NOTES_2.9.9b3.md).
 
 ---
 
@@ -182,7 +194,19 @@ Sensor-Gruppen können jederzeit geändert werden:
 
 ## 🚗 Wallbox-Steuerung (Optional)
 
-Für die Steuerung der Enpal Wallbox wird ein separates Add-on, bzw. seit 2026.2 eine eigene "App" benötigt, welche die Kommunikation mit der Wallbox-Hardware übernehmen.
+> ### 🅿️ WebSocket-Modus: Wallbox App / Add-on NICHT mehr nötig
+>
+> Im **WebSocket-Modus** (Firmware 8.50) steuert die Integration die Wallbox **direkt** — das
+> separate **Wallbox Add-on bzw. die Wallbox App wird nicht mehr benötigt**.
+>
+> **Wichtig:** Falls das alte Wallbox Add-on / die App noch installiert ist, sollte es im
+> WebSocket-Modus unbedingt **deaktiviert (gestoppt)** werden, um doppelte Steuerbefehle und
+> Konflikte zu vermeiden. Die Wallbox-Steuerung wird stattdessen direkt in den
+> Integrationseinstellungen aktiviert.
+>
+> Der folgende Abschnitt gilt nur noch für den **HTML-Polling-Modus (Legacy)**.
+
+Für die Steuerung der Enpal Wallbox im **HTML-Modus** wird ein separates Add-on, bzw. seit 2026.2 eine eigene "App" benötigt, welche die Kommunikation mit der Wallbox-Hardware übernehmen.
 
 ### Features des Wallbox Add-ons / der Wallbox App
 - **Lademodus umschalten**: Eco, Solar, Full
@@ -305,9 +329,10 @@ Die Integration ist vollständig mit dem Home Assistant Energy Dashboard kompati
 ## 📝 Bekannte Einschränkungen
 
 - **Nur 1. Generation Enpal Boxen** mit lokaler Weboberfläche werden unterstützt
+- **Firmware 8.50 für neue Funktionen**: WebSocket-Echtzeitmodus, native Wallbox-Steuerung und das inkrementelle RenderBatch-Parsing setzen Firmware **8.50** voraus. Ältere Stände nutzen den HTML-Polling-Modus.
 - **Firmware-Abhängigkeit**: Verfügbare Sensoren können sich durch Enpal-Firmware-Updates ändern
 - **Keine Cloud-Integration**: Die Integration kommuniziert nur lokal, keine Anbindung an Enpal-Cloud
-- **Wallbox-Steuerung**: Benötigt separates Add-on (nicht Teil der Integration)
+- **Wallbox-Steuerung**: Im HTML-Modus über separates Add-on; im WebSocket-Modus (Firmware 8.50) nativ ohne Add-on
 
 ---
 
@@ -345,5 +370,5 @@ MIT License - siehe [LICENSE](LICENSE) Datei für Details.
 
 ---
 
-**Getestet mit**: Enpal Firmware Solar Rel. 8.47.4-461279 (19.09.2025)
+**Getestet mit**: Enpal Firmware Solar Rel. 8.50.1-773465 (27.05.2026)
 
