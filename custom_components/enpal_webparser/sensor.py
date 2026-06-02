@@ -53,9 +53,28 @@ from .const import (
     DEFAULT_TIMEOUT,
     DEFAULT_URL,
     DOMAIN,
+    WALLBOX_MODE_SOURCE_CANDIDATES,
+    WALLBOX_STATUS_SOURCE_CANDIDATES,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _find_wallbox_source(data, configured, candidates):
+    """Resolve which raw Wallbox sensor (make_id key) provides a value.
+
+    Returns the configured key if present in the current coordinator data,
+    otherwise the first matching auto-detect candidate, or ``None`` if neither
+    is available (e.g. older firmware that does not expose the value).
+    """
+    available = {make_id(s.get("name", "")) for s in (data or [])}
+    if configured and configured not in (None, "", "auto") and configured in available:
+        return configured
+    for candidate in candidates:
+        if candidate in available:
+            return candidate
+    return None
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
     _LOGGER.info("[Enpal] sensor.py async_setup_entry started")
@@ -152,9 +171,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
 
     use_wallbox = entry.options.get("use_wallbox", False)
 
+    # Track which sensor unique_ids we have already created so we can add new
+    # ones dynamically when they appear in later coordinator updates.  Some
+    # Enpal sensors (e.g. Energy.Consumption.Total.Lifetime) appear and
+    # disappear intermittently and would otherwise never get an entity if they
+    # were missing at startup.
+    created_uids: set[str] = set()
+
     entities = []
     for sensor_dict in coordinator.data:
         _LOGGER.debug("[Enpal] Adding sensor entity: %s", sensor_dict["name"])
+        created_uids.add(make_id(sensor_dict.get("name", "")))
         entities.append(build_sensor_entity(sensor_dict, coordinator, use_wallbox=use_wallbox))
 
 
@@ -204,51 +231,107 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     entities.append(DailyResetFromEntitySensor(hass, "sensor.inverter_energy_produced_total_dc"))
 
     if entry.options.get("use_wallbox", False):
-        _LOGGER.info("[Enpal] Wallbox control enabled, setting up coordinator")
+        _LOGGER.info("[Enpal] Wallbox control enabled, setting up sensors")
 
-        # Use shared wallbox client from entry data
-        entry_data = hass.data[DOMAIN].get(entry.entry_id, {})
-        wallbox_api_client = entry_data.get("wallbox_client")
-        if wallbox_api_client is None:
-            _LOGGER.error("[Enpal] No wallbox client available, skipping wallbox sensors")
-        else:
-            wallbox_data = {}
+        # Firmware 8.50+: charge mode and connection state are exposed directly
+        # on /deviceMessages (group "Wallbox"). Prefer those values from the main
+        # coordinator and only fall back to polling the legacy addon when the box
+        # does not expose them.
+        mode_source = _find_wallbox_source(
+            coordinator.data,
+            entry.options.get("wallbox_mode_source"),
+            WALLBOX_MODE_SOURCE_CANDIDATES,
+        )
+        status_source = _find_wallbox_source(
+            coordinator.data,
+            entry.options.get("wallbox_status_source"),
+            WALLBOX_STATUS_SOURCE_CANDIDATES,
+        )
 
-            async def async_wallbox_update():
-                nonlocal wallbox_data
-                try:
-                    data = await wallbox_api_client.get_status()
-                    if data is None:
-                        raise Exception("Wallbox API returned None")
-                    
-                    _LOGGER.debug("[Enpal] Wallbox status data: %s", data)
-                    wallbox_data = data
-                    return data
-                except Exception as e:
-                    if wallbox_data:
-                        _LOGGER.warning("[Enpal] Wallbox update failed - using last known data: %s", e)
-                        return wallbox_data
-                    else:
-                        _LOGGER.warning("[Enpal] Wallbox update failed - no previous data yet: %s", e)
-                        raise UpdateFailed(f"Wallbox update failed and no previous data: {e}")
-
-            wallbox_coordinator = DataUpdateCoordinator(
-                hass,
-                logger=_LOGGER,
-                name="Wallbox Status",
-                update_method=async_wallbox_update,
-                update_interval=timedelta(seconds=interval),
+        if mode_source or status_source:
+            _LOGGER.info(
+                "[Enpal] Using native wallbox status from /deviceMessages "
+                "(mode=%s, status=%s)",
+                mode_source,
+                status_source,
             )
+            if mode_source:
+                entities.append(WallboxNativeModeSensor(coordinator, mode_source))
+            if status_source:
+                entities.append(WallboxNativeStatusSensor(coordinator, status_source))
+        else:
+            _LOGGER.info(
+                "[Enpal] Native wallbox status not found, falling back to addon poll"
+            )
+            # Use shared wallbox client from entry data
+            entry_data = hass.data[DOMAIN].get(entry.entry_id, {})
+            wallbox_api_client = entry_data.get("wallbox_client")
+            if wallbox_api_client is None:
+                _LOGGER.error("[Enpal] No wallbox client available, skipping wallbox sensors")
+            else:
+                wallbox_data = {}
 
-            hass.async_create_task(wallbox_coordinator.async_refresh())
+                async def async_wallbox_update():
+                    nonlocal wallbox_data
+                    try:
+                        data = await wallbox_api_client.get_status()
+                        if data is None:
+                            raise Exception("Wallbox API returned None")
 
-            entities.extend([
-                WallboxModeSensor(wallbox_coordinator),
-                WallboxStatusSensor(wallbox_coordinator),
-            ])
-            _LOGGER.debug("[Enpal] Wallbox-Sensoren hinzugefügt")
+                        _LOGGER.debug("[Enpal] Wallbox status data: %s", data)
+                        wallbox_data = data
+                        return data
+                    except Exception as e:
+                        if wallbox_data:
+                            _LOGGER.warning("[Enpal] Wallbox update failed - using last known data: %s", e)
+                            return wallbox_data
+                        else:
+                            _LOGGER.warning("[Enpal] Wallbox update failed - no previous data yet: %s", e)
+                            raise UpdateFailed(f"Wallbox update failed and no previous data: {e}")
+
+                wallbox_coordinator = DataUpdateCoordinator(
+                    hass,
+                    logger=_LOGGER,
+                    name="Wallbox Status",
+                    update_method=async_wallbox_update,
+                    update_interval=timedelta(seconds=interval),
+                )
+
+                hass.async_create_task(wallbox_coordinator.async_refresh())
+
+                entities.extend([
+                    WallboxModeSensor(wallbox_coordinator),
+                    WallboxStatusSensor(wallbox_coordinator),
+                ])
+                _LOGGER.debug("[Enpal] Wallbox-Sensoren hinzugefügt")
 
     async_add_entities(entities)
+
+    @callback
+    def _async_add_new_sensors() -> None:
+        """Add entities for sensors that appear after startup.
+
+        Enpal sensors can appear/disappear between updates.  Whenever the
+        coordinator reports a sensor we have not created an entity for yet,
+        build and register it on the fly.  Existing entities keep their last
+        value when a sensor temporarily disappears (handled in the entity).
+        """
+        if not coordinator.data:
+            return
+        new_entities = []
+        for sensor_dict in coordinator.data:
+            uid = make_id(sensor_dict.get("name", ""))
+            if not uid or uid in created_uids:
+                continue
+            created_uids.add(uid)
+            _LOGGER.info("[Enpal] New sensor appeared, adding entity: %s", sensor_dict["name"])
+            new_entities.append(
+                build_sensor_entity(sensor_dict, coordinator, use_wallbox=use_wallbox)
+            )
+        if new_entities:
+            async_add_entities(new_entities)
+
+    entry.async_on_unload(coordinator.async_add_listener(_async_add_new_sensors))
 
 
 class CumulativeEnergySensor(SensorEntity, RestoreEntity):  
@@ -458,3 +541,55 @@ class WallboxModeSensor(WallboxCoordinatorEntity):
 class WallboxStatusSensor(WallboxCoordinatorEntity):
     def __init__(self, coordinator):
         super().__init__(coordinator, "Wallbox Status", "wallbox_status", "status")
+
+
+class WallboxNativeSensor(CoordinatorEntity, SensorEntity):
+    """Wallbox sensor fed from the main /deviceMessages coordinator.
+
+    Firmware 8.50+ exposes the wallbox charge mode and connection state on the
+    deviceMessages page, so they no longer require polling the external addon.
+    The entity reuses the same unique_id/name as the legacy addon-based sensors
+    so that select/switch/button references (e.g. ``sensor.wallbox_lademodus``)
+    keep working unchanged.
+    """
+
+    def __init__(self, coordinator, name, unique_id, source_key, lower=False):
+        super().__init__(coordinator)
+        self._attr_name = str(name)
+        self._attr_unique_id = str(unique_id)
+        self._source_key = source_key
+        self._lower = lower
+        self._attr_icon = "mdi:ev-station"
+        self._attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    @cached_property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={(DOMAIN, "enpal_device")},
+            name="Enpal Webgerät",
+            manufacturer="Enpal",
+            model="Webparser",
+        )
+
+    @property
+    def native_value(self) -> StateType:
+        for sensor in (self.coordinator.data or []):
+            if make_id(sensor.get("name", "")) == self._source_key:
+                value = sensor.get("value")
+                if value is not None and self._lower:
+                    return str(value).lower()
+                return value
+        return None
+
+
+class WallboxNativeModeSensor(WallboxNativeSensor):
+    def __init__(self, coordinator, source_key):
+        super().__init__(coordinator, "Wallbox Lademodus", "wallbox_mode", source_key)
+
+
+class WallboxNativeStatusSensor(WallboxNativeSensor):
+    def __init__(self, coordinator, source_key):
+        # Status is compared case-sensitively elsewhere (state == "charging"),
+        # so normalize the raw value (e.g. "Charging") to lower case.
+        super().__init__(coordinator, "Wallbox Status", "wallbox_status", source_key, lower=True)
+

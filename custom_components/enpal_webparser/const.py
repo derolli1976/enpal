@@ -88,6 +88,23 @@ WALLBOX_LEGACY_MODE_MAP = {
     "fast": "full",
 }
 
+# --- Wallbox native sources (firmware 8.50) ---
+# Since firmware 8.50 the wallbox charge mode and connection state are exposed
+# directly on /deviceMessages (group "Wallbox"). These are the make_id() keys of
+# the raw sensors we prefer when feeding the dedicated "Wallbox Lademodus" and
+# "Wallbox Status" sensors, in priority order. Used for auto-detection when the
+# user has not explicitly selected a source in the options flow.
+WALLBOX_MODE_SOURCE_CANDIDATES = [
+    "wallbox_mode_charge_connector_1",  # Mode.Charge.Connector.1 -> Solar/Eco/Fast
+]
+WALLBOX_STATUS_SOURCE_CANDIDATES = [
+    # Status.Wallbox.Connector.1 -> Available/Charging (reflects the vehicle/charge state).
+    # NOTE: Status.Wallbox.Connected only indicates whether a wallbox is attached
+    # at all (1/0), NOT the vehicle connection/charge state, so it is intentionally
+    # NOT used here.
+    "status_wallbox_connector_1",
+]
+
 # --- Date/Time Formats ---
 ENPAL_TIMESTAMP_FORMAT = "%m/%d/%Y %H:%M:%S"
 

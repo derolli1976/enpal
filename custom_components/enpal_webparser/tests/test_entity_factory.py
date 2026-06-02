@@ -86,6 +86,39 @@ def test_sensor_device_info():
     assert device_info.get("manufacturer") == "Enpal"
     assert device_info.get("model") == "Webparser"
 
+
+def test_native_value_falls_back_to_restored_value():
+    """When the current value is missing, the restored value is used.
+
+    Covers sensors that temporarily disappear from the Enpal box output or
+    have no coordinator value yet right after a restart.
+    """
+    sensor_dict = {
+        "name": "Intermittent Sensor",
+        "value": None,
+        "unit": "kWh",
+        "device_class": "energy",
+    }
+    sensor = build_sensor_entity(sensor_dict, DummyCoordinator())
+    # No restored value yet -> None
+    assert sensor.native_value is None
+    # Simulate a value restored from the previous HA run
+    sensor._restored_value = "999.5"
+    assert sensor.native_value == "999.5"
+
+
+def test_native_value_prefers_current_over_restored():
+    """A present current value takes precedence over the restored value."""
+    sensor_dict = {
+        "name": "Live Sensor",
+        "value": "42.0",
+        "unit": "kWh",
+        "device_class": "energy",
+    }
+    sensor = build_sensor_entity(sensor_dict, DummyCoordinator())
+    sensor._restored_value = "999.5"
+    assert sensor.native_value == "42.0"
+
 @pytest.fixture
 def hass():
     """Return a mocked hass instance."""
