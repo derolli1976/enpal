@@ -1,16 +1,23 @@
 # Enpal Solar Integration - AI Coding Agent Instructions
 
 ## Project Overview
-This is a Home Assistant custom integration that parses data from local Enpal solar system web interfaces (e.g., `http://<enpal-box-ip>/deviceMessages`) and creates sensors dynamically. It supports optional wallbox control via an external add-on API.
+This is a Home Assistant custom integration that reads data from local Enpal solar systems and creates sensors dynamically. It supports two data sources and optional wallbox control.
 
-**Target**: First-generation Enpal boxes that expose HTML tables on local network (NOT all Enpal systems are supported). Enpal boxes get their IP address via DHCP from the router.
+**Target**: First-generation Enpal boxes that expose a local web interface (NOT all Enpal systems are supported). Enpal boxes get their IP address via DHCP from the router.
+
+**Two data-source modes** (chosen in the config flow, stored as `data_source` = `html` / `websocket` / `auto`):
+- **HTML mode (Legacy)**: Periodically scrapes `http://<enpal-box-ip>/deviceMessages` and parses the HTML tables.
+- **WebSocket mode (Firmware 8.50)**: Connects to the box's Blazor SignalR WebSocket for real-time data and native wallbox control (no add-on required).
+
+**Firmware dependency**: The WebSocket mode, native wallbox control, and the incremental RenderBatch parsing require Enpal firmware **Solar Rel. 8.50** (tested with `8.50.1-773465`). Older firmware keeps working in HTML mode only.
 
 ## Architecture & Key Components
 
 ### Data Flow
 1. **HTML Scraping** (`utils.py`): Fetches HTML from Enpal box → BeautifulSoup parsing → extracts sensor data from `<div class="card">` elements
-2. **Dynamic Entity Creation** (`sensor.py`, `entity_factory.py`): Parsed data → DataUpdateCoordinator → Auto-generated HA sensor entities
-3. **Optional Wallbox Control** (`button.py`, `switch.py`, `select.py`): Only loaded when `use_wallbox_addon=True` → HTTP POST to `localhost:36725/wallbox/*`
+2. **WebSocket / RenderBatch** (`api/websocket_client.py`, `api/render_batch.py`): Blazor SignalR push → incremental binary RenderBatch diff → patches a cached sensor baseline in real time
+3. **Dynamic Entity Creation** (`sensor.py`, `entity_factory.py`): Parsed data → DataUpdateCoordinator → Auto-generated HA sensor entities (created at runtime as new keys appear, values retained when keys disappear)
+4. **Wallbox Control** (`button.py`, `switch.py`, `select.py` + `wallbox_api.py`): Native (Blazor click) in WebSocket mode, or legacy HTTP POST to `localhost:36725/wallbox/*` via the add-on
 
 ### Critical Files
 - **`utils.py`**: Core parsing logic (`parse_enpal_html_sensors`, `expand_inverter_system_state`). All sensor extraction happens here.
@@ -19,7 +26,20 @@ This is a Home Assistant custom integration that parses data from local Enpal so
 - **`sensor.py`**: Platform setup with DataUpdateCoordinator, fallback to last known data on errors, cumulative energy sensors
 - **`config_flow.py`**: Multi-step UI configuration with auto-discovery and manual setup options, URL validation, group selection, wallbox toggle
 - **`discovery.py`**: Network scanning utilities for auto-discovering Enpal boxes on local subnets
-- **`wallbox_api.py`**: Centralized API client for all wallbox HTTP communication (added to eliminate code duplication)
+- **`wallbox_api.py`**: Centralized API client for all wallbox communication. Blazor-first (`_control`) with add-on (port 36725) fallback; not coupled to `use_native`
+- **`api/websocket_client.py`**: Blazor SignalR client. Connect/handshake, ping loop, message read loop. Handles `JS.RenderBatch` pushes incrementally (see below) and exposes `_scrape_and_parse()` as the full-scrape baseline source
+- **`api/render_batch.py`**: Decodes the Blazor RenderBatch binary payload (`parse_render_batch_strings`, `extract_changed_rows`, `is_patchable_value`). Pure functions, defensive: returns `[]` on malformed/empty frames
+- **`api/wallbox_client.py`**, **`api/websocket_parser.py`**, **`api/html_client.py`**, **`api/protocol.py`**, **`api/base.py`**: Blazor button clicks, WebSocket payload parsing, HTTP client, SignalR/MessagePack protocol helpers, shared base
+
+### WebSocket Incremental RenderBatch Parsing (Firmware 8.50)
+In WebSocket mode the box pushes a binary Blazor RenderBatch on every change (~every 5 s). Instead of re-scraping the full page each time, `websocket_client._on_render_batch` patches a cached baseline incrementally.
+
+- **Binary layout** (see `render_batch.py` docstring): last 4 bytes = int32 LE string-table offset; the table is an array of int32 offsets to VLQ-length-prefixed UTF-8 strings.
+- **Row pattern** per changed sensor (DOM order): `'dp-flash', '<DottedKey>', '<ws>', '<value>'[, '<unit>'], '<ws>', '<timestamp>'`. A linear scan is enough; no virtual-DOM reconstruction.
+- **Fast path** (`_apply_diff`): only patches unambiguous keys (`_key_index[make_id(key)]` has exactly 1 index). Reuses `get_class_and_unit` + `normalize_value_and_unit` so values match the HTML parser (e.g. Wh→kWh).
+- **Slow path / safety net**: the coordinator's existing periodic full scrape (`fetch_data()` → `_set_baseline`, default 60 s) refreshes the baseline and corrects ambiguous/new/oversized rows.
+- **Deliberately skipped on the fast path** (handled by the full scrape): ~10 ambiguous keys whose dotted name appears in two groups (e.g. `power_ac_phase_a/b/c`, `voltage_phase_a/b/c` in Inverter+PowerSensor; `power_battery_charge_discharge` etc. in Inverter+Battery), empty values, and values >200 chars (inverter system state).
+- **Worst case** degrades gracefully to plain interval polling (= current HTML behavior).
 
 ### Special Parsing Logic: Inverter System State
 The inverter "System State" sensor contains a 200+ character bitfield string like `"State Decimal: 1234 Bits: 0101010101..."`.
@@ -99,16 +119,17 @@ _LOGGER.info("[Enpal] Your message: %s", variable)  # Always prefix with [Enpal]
 
 ### Platform Loading
 - Base platforms: Always `["sensor"]`
-- Optional platforms: `["button", "switch", "select"]` only when `use_wallbox_addon=True`
+- Optional platforms: `["button", "switch", "select"]` when wallbox control is enabled (native in WebSocket mode, or via add-on in HTML mode)
 - Dynamic loading in `__init__.py`: `async_forward_entry_setups(entry, platforms)`
 
 ## Integration Points
 
 ### External Dependencies
 - **BeautifulSoup** (`bs4`): HTML parsing - assumes specific structure with `<div class="card"><h2>GroupName</h2><table><tr><td>Sensor</td><td>Value</td><td>Timestamp</td></tr>`
-- **Wallbox Add-on**: Separate Home Assistant add-on (not part of this repo) exposes HTTP API on port 36725
+- **Wallbox Add-on (Legacy / HTML mode only)**: Separate Home Assistant add-on (not part of this repo) exposes HTTP API on port 36725
   - Endpoints: `/start`, `/stop`, `/set_eco`, `/set_solar`, `/set_full`, `/status`
   - This integration only consumes the API, doesn't implement it
+  - In WebSocket mode (Firmware 8.50) the add-on is NOT needed; the integration controls the wallbox natively via Blazor. The add-on should be stopped to avoid duplicate commands.
 
 ### Home Assistant Integration
 - **Config Flow**: Multi-step UI-only configuration (no YAML)
@@ -129,5 +150,17 @@ _LOGGER.info("[Enpal] Your message: %s", variable)  # Always prefix with [Enpal]
 5. **Test Isolation**: Tests don't use pytest parametrize - each test explicitly constructs scenarios for clarity
 
 ## Branch Context
-Current branch: `72-bug-sensorinverter_system_state-is-longer-than-255`  
-Working on: Fixing the inverter system state string length issue (this is why `expand_inverter_system_state()` exists)
+Current branch: `dev` (manifest version `2.9.9b3`).
+Recent work: Firmware-8.50 adaptation. WebSocket/native wallbox mode, dynamic runtime sensor creation with `RestoreEntity`, and Phase 4 = incremental RenderBatch parsing to reduce the Enpal box CPU load (fast-path diff + 60 s full-scrape safety net).
+
+## Documentation Writing Style (README, Release Notes, German user-facing docs)
+User-facing docs are written in German. Avoid AI-typical phrasing and "AI slop". Target style: short, concrete declarative sentences.
+
+**Avoid:**
+- Tricolons / "nicht nur X, sondern auch Y und Z" and other symmetric/parallel sentence patterns
+- Filler and escalation phrases: "Genau hier/dort beginnt", "Damit wird deutlich", "Die eigentliche Frage", "entscheidend ist", "Mehrwert schaffen", "Potenziale heben", "in einer zunehmend komplexen Welt", "in der heutigen schnelllebigen Welt", "es ist wichtig zu beachten", "jetzt wird es richtig spannend"
+- Stacked transitions like repeated "zudem / darüber hinaus"
+- Em-dashes and en-dashes (—/–); use a period, comma, or restructure the sentence instead
+- Inflated marketing words ("deutlich", "unbedingt", "ganz ohne") and "Vorteile auf einen Blick"-style headers
+
+**Prefer:** plain statements of what changed and why, one idea per sentence, consistent "du"-address in instructions.

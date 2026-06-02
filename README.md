@@ -22,13 +22,14 @@ Eine Home Assistant Custom Integration zur lokalen Überwachung von Enpal Solara
 
 > ## ⚠️ Beta 2.9.9b3 — Firmware 8.50 erforderlich
 >
-> Diese **Beta-Version** ist auf die Enpal-Firmware **Solar Rel. 8.50.1-773465 (27.05.2026)** ausgerichtet und damit getestet.
+> Diese Beta-Version ist auf die Enpal-Firmware **Solar Rel. 8.50.1-773465 (27.05.2026)** ausgerichtet und damit getestet.
 >
-> - Der neue **WebSocket-Modus** (Echtzeit-Daten) und die **native Wallbox-Steuerung ohne Add-on** setzen Firmware **8.50** voraus.
-> - Das **inkrementelle RenderBatch-Parsing** (neu in 2.9.9b3, reduziert die CPU-Last der Enpal Box deutlich) basiert auf dem Datenformat von Firmware **8.50**.
-> - Auf älteren Firmware-Ständen funktioniert weiterhin der **HTML-Polling-Modus (Legacy)**, jedoch ohne die neuen Echtzeit- und Wallbox-Funktionen.
-> - 🅿️ **Wichtig im WebSocket-Modus:** Das **Wallbox Add-on / die Wallbox App wird nicht mehr benötigt** — die Wallbox wird direkt von der Integration gesteuert. Das alte Add-on / die App sollte in diesem Fall unbedingt **deaktiviert (gestoppt)** werden, um Konflikte zu vermeiden.
-> - 💾 Vor der Installation unbedingt ein **Home Assistant-Backup** anlegen. Details in den [Release Notes 2.9.9b3](docs/RELEASE_NOTES_2.9.9b3.md).
+> - Der **WebSocket-Modus** (Echtzeit-Daten) und die **native Wallbox-Steuerung ohne Add-on** setzen Firmware **8.50** voraus.
+> - Das **inkrementelle RenderBatch-Parsing** (neu in 2.9.9b3) senkt die CPU-Last der Enpal Box. Es basiert auf dem Datenformat von Firmware **8.50**.
+> - Auf älteren Firmware-Ständen läuft weiterhin der **HTML-Polling-Modus (Legacy)**, ohne die neuen Echtzeit- und Wallbox-Funktionen.
+> - **Wallbox im WebSocket-Modus:** Das Wallbox Add-on bzw. die Wallbox App wird nicht mehr benötigt. Die Integration steuert die Wallbox direkt. Stoppe das alte Add-on bzw. die App in diesem Fall, sonst kommt es zu doppelten Steuerbefehlen.
+> - **Fehlende Sensoren:** Seit Firmware **8.50** stellt Enpal einige Sensoren nicht mehr bereit. Die Integration kann das nicht ändern. Betroffene Entitäten kannst du in Home Assistant gefahrlos löschen.
+> - Lege vor der Installation ein **Home Assistant-Backup** an. Details in den [Release Notes 2.9.9b3](docs/RELEASE_NOTES_2.9.9b3.md).
 
 ---
 
@@ -194,17 +195,13 @@ Sensor-Gruppen können jederzeit geändert werden:
 
 ## 🚗 Wallbox-Steuerung (Optional)
 
-> ### 🅿️ WebSocket-Modus: Wallbox App / Add-on NICHT mehr nötig
+> ### WebSocket-Modus: Wallbox App / Add-on nicht mehr nötig
 >
-> Im **WebSocket-Modus** (Firmware 8.50) steuert die Integration die Wallbox **direkt** — das
-> separate **Wallbox Add-on bzw. die Wallbox App wird nicht mehr benötigt**.
+> Im **WebSocket-Modus** (Firmware 8.50) steuert die Integration die Wallbox direkt. Das separate Wallbox Add-on bzw. die Wallbox App wird nicht mehr benötigt.
 >
-> **Wichtig:** Falls das alte Wallbox Add-on / die App noch installiert ist, sollte es im
-> WebSocket-Modus unbedingt **deaktiviert (gestoppt)** werden, um doppelte Steuerbefehle und
-> Konflikte zu vermeiden. Die Wallbox-Steuerung wird stattdessen direkt in den
-> Integrationseinstellungen aktiviert.
+> **Wichtig:** Stoppe das alte Wallbox Add-on bzw. die App im WebSocket-Modus, sonst kommt es zu doppelten Steuerbefehlen. Die Wallbox-Steuerung aktivierst du stattdessen direkt in den Integrationseinstellungen.
 >
-> Der folgende Abschnitt gilt nur noch für den **HTML-Polling-Modus (Legacy)**.
+> Der folgende Abschnitt gilt nur für den **HTML-Polling-Modus (Legacy)**.
 
 Für die Steuerung der Enpal Wallbox im **HTML-Modus** wird ein separates Add-on, bzw. seit 2026.2 eine eigene "App" benötigt, welche die Kommunikation mit der Wallbox-Hardware übernehmen.
 
@@ -272,6 +269,9 @@ Enpal aktualisiert gelegentlich die Firmware, was zu temporär fehlenden Sensore
 4. Im Forum nach ähnlichen Problemen suchen
 
 **Hinweis**: Die Integration kann nur Daten anzeigen, die die Enpal Box bereitstellt. Bei Firmware-Updates können sich verfügbare Datenpunkte ändern.
+
+> ⚠️ **Seit Firmware 8.50 stellt Enpal einige Sensoren nicht mehr bereit.**
+> Die Integration kann das nicht ändern. Fehlende Werte kommen daher, dass die Enpal Box sie nicht mehr liefert. Die dauerhaft nicht mehr verfügbaren Sensoren kannst du in Home Assistant gefahrlos löschen (über **Einstellungen → Geräte & Dienste → Entitäten** die jeweilige Entität auswählen und entfernen). Liefert Enpal einen Sensor später wieder, legt die Integration ihn automatisch neu an.
 
 </details>
 
