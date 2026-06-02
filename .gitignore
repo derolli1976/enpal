@@ -10,3 +10,7 @@ __pycache__/
 *.log
 *.zip
 .coverage
+
+# PoC / sniffer output may contain personal data (box IP, serials, sensor values)
+poc/*
+!poc/.gitkeep
