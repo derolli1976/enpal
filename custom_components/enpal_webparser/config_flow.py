@@ -30,6 +30,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .discovery import discover_enpal_devices, quick_discover_enpal_devices
 from .wallbox_api import WallboxApiClient
+from .utils import make_id, parse_enpal_html_sensors
 from .const import (
     DEFAULT_GROUPS,
     DEFAULT_INTERVAL,
@@ -37,6 +38,8 @@ from .const import (
     DEFAULT_URL,
     DEFAULT_USE_WALLBOX,
     DOMAIN,
+    WALLBOX_MODE_SOURCE_CANDIDATES,
+    WALLBOX_STATUS_SOURCE_CANDIDATES,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -134,24 +137,64 @@ def get_default_config(options: dict[str, Any] | None = None) -> dict[str, Any]:
         "groups": src.get("groups", DEFAULT_GROUPS),
         "use_wallbox": src.get("use_wallbox", DEFAULT_USE_WALLBOX),
         "data_source": src.get("data_source", "auto"),  # auto, websocket, html
+        "wallbox_mode_source": src.get("wallbox_mode_source", "auto"),
+        "wallbox_status_source": src.get("wallbox_status_source", "auto"),
     }
 
 
-def get_form_schema(config: dict[str, Any]) -> vol.Schema:
-    return vol.Schema(
-        {
-            vol.Required("url", default=cast(Any, config["url"])): str,
-            vol.Required("interval", default=cast(Any, config["interval"])): int,
-            vol.Required("timeout", default=cast(Any, config["timeout"])): vol.All(int, vol.Range(min=10, max=120)),
-            vol.Optional("groups", default=cast(Any, config["groups"])): cv.multi_select(DEFAULT_GROUPS),
-            vol.Optional("use_wallbox", default=cast(Any, config["use_wallbox"])): bool,
-            vol.Optional("data_source", default=cast(Any, config["data_source"])): vol.In({
-                "auto": "Auto-detect (recommended)",
-                "websocket": "WebSocket (real-time)",
-                "html": "HTML polling (legacy)"
-            }),
-        }
-    )
+async def get_wallbox_source_options(hass, url: str) -> dict[str, str]:
+    """Fetch the live Wallbox-group sensors and build selector options.
+
+    Returns a mapping of make_id key -> human readable label, always including an
+    "auto" entry. Falls back to just {"auto": ...} if the box is unreachable or
+    exposes no wallbox sensors (e.g. older firmware).
+    """
+    options: dict[str, str] = {"auto": "Auto-detect (recommended)"}
+    try:
+        session = async_get_clientsession(hass)
+        async with session.get(url, timeout=30) as response:
+            if response.status != 200:
+                return options
+            html = await response.text()
+        sensors = parse_enpal_html_sensors(html, ["Wallbox"])
+        for sensor in sensors:
+            name = sensor.get("name", "")
+            key = make_id(name)
+            if key:
+                options[key] = name
+    except Exception as e:
+        _LOGGER.debug("[Enpal] Could not fetch wallbox source options: %s", e)
+    return options
+
+
+def get_form_schema(config: dict[str, Any], wallbox_sources: dict[str, str] | None = None) -> vol.Schema:
+    schema: dict[Any, Any] = {
+        vol.Required("url", default=cast(Any, config["url"])): str,
+        vol.Required("interval", default=cast(Any, config["interval"])): int,
+        vol.Required("timeout", default=cast(Any, config["timeout"])): vol.All(int, vol.Range(min=10, max=120)),
+        vol.Optional("groups", default=cast(Any, config["groups"])): cv.multi_select(DEFAULT_GROUPS),
+        vol.Optional("use_wallbox", default=cast(Any, config["use_wallbox"])): bool,
+        vol.Optional("data_source", default=cast(Any, config["data_source"])): vol.In({
+            "auto": "Auto-detect (recommended)",
+            "websocket": "WebSocket (real-time)",
+            "html": "HTML polling (legacy)"
+        }),
+    }
+
+    # Firmware 8.50+: let the user pick which raw Wallbox sensor provides the
+    # charge mode / connection state. Only offered when wallbox is enabled and
+    # we could read live sensors from the box.
+    if config.get("use_wallbox") and wallbox_sources:
+        schema[vol.Optional(
+            "wallbox_mode_source",
+            default=cast(Any, config.get("wallbox_mode_source", "auto")),
+        )] = vol.In(wallbox_sources)
+        schema[vol.Optional(
+            "wallbox_status_source",
+            default=cast(Any, config.get("wallbox_status_source", "auto")),
+        )] = vol.In(wallbox_sources)
+
+    return vol.Schema(schema)
 
 
 async def process_user_input(hass, user_input: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, str]]:
@@ -197,6 +240,8 @@ async def process_user_input(hass, user_input: dict[str, Any]) -> tuple[dict[str
         "groups": user_input.get("groups", DEFAULT_GROUPS),
         "use_wallbox": user_input.get("use_wallbox", False),
         "data_source": data_source,
+        "wallbox_mode_source": user_input.get("wallbox_mode_source", "auto"),
+        "wallbox_status_source": user_input.get("wallbox_status_source", "auto"),
     }, {}
 
 
@@ -482,8 +527,13 @@ class EnpalOptionsFlowHandler(config_entries.OptionsFlow):
                 return self.async_create_entry(title="", data=result)
             config.update(user_input)
 
+        # Offer wallbox source selection (firmware 8.50+) when wallbox is enabled.
+        wallbox_sources = None
+        if config.get("use_wallbox"):
+            wallbox_sources = await get_wallbox_source_options(self.hass, config["url"])
+
         return self.async_show_form(
             step_id="init",
-            data_schema=get_form_schema(config),
+            data_schema=get_form_schema(config, wallbox_sources),
             errors=errors,
         )

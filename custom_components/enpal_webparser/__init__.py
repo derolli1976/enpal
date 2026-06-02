@@ -87,9 +87,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
             _LOGGER.info("[Enpal] Created native wallbox client for %s", enpal_base_url)
         else:
-            # Legacy addon mode: HTTP calls to localhost:36725
-            wallbox_client = WallboxApiClient(hass, use_native=False)
-            _LOGGER.info("[Enpal] Created legacy addon wallbox client")
+            # Legacy mode: status is read via the addon (localhost:36725), but
+            # control actions (start/stop/mode) are still routed through the
+            # native Blazor client when the Enpal box URL is known, falling
+            # back to the addon if Blazor is unavailable.
+            wallbox_client = WallboxApiClient(
+                hass,
+                enpal_base_url=enpal_base_url,
+                use_native=False,
+            )
+            _LOGGER.info(
+                "[Enpal] Created legacy addon wallbox client (Blazor control fallback: %s)",
+                enpal_base_url,
+            )
 
         entry_data["wallbox_client"] = wallbox_client
 

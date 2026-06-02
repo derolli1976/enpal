@@ -22,6 +22,7 @@ from functools import cached_property
 from homeassistant.components.sensor import SensorEntity, SensorDeviceClass
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, CoordinatorEntity
 from homeassistant.helpers.entity import DeviceInfo
+from homeassistant.helpers.restore_state import RestoreEntity
 
 from .utils import make_id
 from .const import ICON_MAP, STATE_CLASS_OVERRIDES
@@ -52,11 +53,12 @@ def _display_name(name: str, group: str) -> str:
     return f"{group}: {label}" if label else name
 
 
-class EnpalBaseSensor(CoordinatorEntity, SensorEntity):
+class EnpalBaseSensor(CoordinatorEntity, SensorEntity, RestoreEntity):
     """Generic Enpal sensor entity using the update coordinator."""
 
     def __init__(self, sensor: dict, coordinator: DataUpdateCoordinator):
         super().__init__(coordinator)
+        self._restored_value = None
         self._sensor = sensor
         raw_name = sensor.get("name", "unknown")
         group = sensor.get("group", "")
@@ -95,7 +97,14 @@ class EnpalBaseSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def native_value(self):
-        return self._sensor.get("value")
+        value = self._sensor.get("value")
+        # Fall back to the value restored from the last Home Assistant run
+        # when the sensor is (temporarily) missing from the coordinator data,
+        # e.g. right after a restart or while the sensor disappears from the
+        # Enpal box output.
+        if value is None:
+            return self._restored_value
+        return value
 
     @property
     def extra_state_attributes(self):
@@ -121,6 +130,12 @@ class EnpalBaseSensor(CoordinatorEntity, SensorEntity):
 
     async def async_added_to_hass(self):
         await super().async_added_to_hass()
+        # Restore the last known value so the entity does not become
+        # "unavailable" after a restart before the first coordinator update,
+        # and to bridge gaps when a sensor temporarily disappears.
+        last_state = await self.async_get_last_state()
+        if last_state is not None and last_state.state not in (None, "unknown", "unavailable"):
+            self._restored_value = last_state.state
         self._handle_coordinator_update()
 
 

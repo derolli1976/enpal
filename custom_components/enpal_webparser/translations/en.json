@@ -53,7 +53,9 @@
           "interval": "Polling interval (in seconds) - Intervals below 60 seconds are not recommended!",
           "timeout": "HTTP timeout (in seconds, 10-120) - Increase if sensors frequently become unavailable",
           "groups": "Select sensor groups",
-          "use_wallbox": "Enable Wallbox control (WebSocket mode: direct connection, HTML mode: requires Wallbox add-on)"
+          "use_wallbox": "Enable Wallbox control (WebSocket mode: direct connection, HTML mode: requires Wallbox add-on)",
+          "wallbox_mode_source": "Wallbox charge mode sensor (firmware 8.50+) - leave on Auto-detect unless the wrong sensor is used",
+          "wallbox_status_source": "Wallbox status sensor (firmware 8.50+) - leave on Auto-detect unless the wrong sensor is used"
         }
       }
     },
