@@ -1,10 +1,15 @@
 """WebSocket client for Enpal Box using Blazor SignalR protocol.
 
 Connects to /deviceMessages via WebSocket. The Blazor server sends
-JS.RenderBatch messages every ~5 s when sensor data changes.  On each
-RenderBatch we HTTP-GET /deviceMessages and parse the HTML with the
-existing ``parse_enpal_html_sensors()`` function - giving us all 133+
-sensors, event-driven updates, and zero custom binary-diff parsing.
+JS.RenderBatch messages every ~5 s when sensor data changes.
+
+Each RenderBatch already carries the changed sensor rows in its binary
+payload, so we parse those incrementally (see :mod:`.render_batch`) and patch
+a cached baseline instead of HTTP re-scraping the whole page on every push.
+The coordinator still performs a full HTML scrape on its normal poll interval,
+which refreshes the baseline and corrects anything the fast path skips
+(ambiguous keys, new sensors, oversized values).  Worst case therefore
+degrades gracefully to plain interval polling.
 """
 
 import aiohttp
@@ -22,11 +27,18 @@ from .protocol import (
     encode_message,
     decode_messages,
 )
+from .render_batch import (
+    parse_render_batch_strings,
+    extract_changed_rows,
+    is_patchable_value,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
-# Minimum seconds between HTTP re-scrapes triggered by RenderBatch
-_SCRAPE_DEBOUNCE_SECONDS = 5
+# Minimum seconds between coordinator push notifications triggered by a
+# RenderBatch. Incremental diffs are cheap, but pushing tells HA to write all
+# entity states, so we still debounce slightly.
+_PUSH_DEBOUNCE_SECONDS = 2
 
 
 class EnpalWebSocketClient(EnpalApiClient):
@@ -55,8 +67,11 @@ class EnpalWebSocketClient(EnpalApiClient):
         self._read_task: Optional[asyncio.Task] = None
         self._ping_task: Optional[asyncio.Task] = None
         self._data_callback: Optional[Callable[[Dict], Awaitable[None]]] = None
-        self._last_scrape_time: float = 0
+        self._last_push_time: float = 0
         self._last_activity: float = 0  # Last message received from server
+        # Cached full sensor list + index for incremental RenderBatch patching
+        self._baseline: Optional[List[Dict]] = None
+        self._key_index: Dict[str, List[int]] = {}
 
     # ------------------------------------------------------------------
     # Public API
@@ -165,6 +180,8 @@ class EnpalWebSocketClient(EnpalApiClient):
         except Exception:
             self.connected = False
             raise
+        # Refresh the baseline used for incremental RenderBatch patching.
+        self._set_baseline(sensors)
         return {'sensors': sensors, 'source': 'websocket'}
 
     async def close(self) -> None:
@@ -317,29 +334,117 @@ class EnpalWebSocketClient(EnpalApiClient):
                 # Acknowledge the render so the server keeps sending
                 if args:
                     await self._send_on_render_completed(args[0])
-                # Data likely changed → scrape + push (debounced)
-                await self._on_render_batch()
+                # Apply the incremental binary diff and push (debounced)
+                batch_bytes = args[1] if len(args) > 1 else None
+                await self._on_render_batch(batch_bytes)
 
             elif target == "JS.BeginInvokeJS":
                 # Always acknowledge JS calls to keep circuit alive
                 if len(args) >= 1:
                     await self._send_end_invoke_js(args[0])
 
-    async def _on_render_batch(self):
-        """React to a RenderBatch: HTTP-scrape and push data (debounced)."""
-        now = time.monotonic()
-        if now - self._last_scrape_time < _SCRAPE_DEBOUNCE_SECONDS:
-            return
-        self._last_scrape_time = now
+    async def _on_render_batch(self, batch_bytes=None):
+        """React to a RenderBatch by patching the baseline from the binary diff.
 
+        No HTTP scrape is performed here - the changed sensor rows are read
+        directly from the RenderBatch payload.  The coordinator's periodic
+        full scrape (which calls :meth:`fetch_data`) refreshes the baseline and
+        corrects anything the fast path skips.
+        """
         if self._data_callback is None:
             return
 
+        # Seed the baseline if we have not scraped yet (a push can arrive
+        # before the coordinator's first poll completes).
+        if self._baseline is None:
+            try:
+                sensors = await self._scrape_and_parse()
+            except Exception:
+                _LOGGER.exception("[Enpal WebSocket] Baseline scrape failed")
+                return
+            self._set_baseline(sensors)
+            await self._push()
+            return
+
+        # Apply the incremental diff from the binary RenderBatch payload.
+        if isinstance(batch_bytes, (bytes, bytearray)):
+            try:
+                rows = extract_changed_rows(parse_render_batch_strings(bytes(batch_bytes)))
+                if rows:
+                    self._apply_diff(rows)
+            except Exception:
+                _LOGGER.exception("[Enpal WebSocket] Incremental diff failed")
+
+        # Push to the coordinator (debounced).
+        now = time.monotonic()
+        if now - self._last_push_time < _PUSH_DEBOUNCE_SECONDS:
+            return
+        self._last_push_time = now
+        await self._push()
+
+    async def _push(self) -> None:
+        """Send the current baseline to the registered data callback."""
+        if self._data_callback is None or self._baseline is None:
+            return
         try:
-            sensors = await self._scrape_and_parse()
-            await self._data_callback({'sensors': sensors, 'source': 'websocket'})
+            await self._data_callback({'sensors': self._baseline, 'source': 'websocket'})
         except Exception:
-            _LOGGER.exception("[Enpal WebSocket] Push-scrape failed")
+            _LOGGER.exception("[Enpal WebSocket] Push callback failed")
+
+    def _set_baseline(self, sensors: List[Dict]) -> None:
+        """Store the full sensor list and (re)build the key → index map.
+
+        The index maps ``make_id(<raw dotted key>)`` to the positions of the
+        matching baseline sensors.  Keys that resolve to more than one sensor
+        (the same dotted key under different groups) are considered ambiguous
+        and skipped on the fast path.
+        """
+        from ..utils import make_id
+
+        self._baseline = sensors
+        index: Dict[str, List[int]] = {}
+        for i, sensor in enumerate(sensors):
+            name = sensor.get("name", "")
+            group = sensor.get("group", "")
+            label = name
+            prefix = f"{group}: "
+            if group and name.startswith(prefix):
+                label = name[len(prefix):]
+            index.setdefault(make_id(label), []).append(i)
+        self._key_index = index
+
+    def _apply_diff(self, rows: List[Dict]) -> None:
+        """Patch baseline sensors in place from extracted RenderBatch rows."""
+        from ..utils import make_id, get_class_and_unit, normalize_value_and_unit
+        from ..const import UNIT_DEVICE_CLASS_MAP, DEFAULT_UNITS
+
+        patched = 0
+        for row in rows:
+            value = row.get("value")
+            if not is_patchable_value(value):
+                continue
+            indices = self._key_index.get(make_id(row["key"]))
+            # Skip unknown keys (new sensors) and ambiguous cross-group keys;
+            # the periodic full scrape handles those correctly.
+            if not indices or len(indices) != 1:
+                continue
+
+            sensor = self._baseline[indices[0]]
+            unit_raw = row.get("unit")
+            combined = value if not unit_raw else f"{value} {unit_raw}"
+            unit, device_class = get_class_and_unit(combined, UNIT_DEVICE_CLASS_MAP)
+            value_clean, unit = normalize_value_and_unit(
+                combined, unit, device_class, DEFAULT_UNITS
+            )
+            sensor["value"] = value_clean
+            if unit:
+                sensor["unit"] = unit
+            if row.get("timestamp"):
+                sensor["enpal_last_update"] = row["timestamp"]
+            patched += 1
+
+        if patched:
+            _LOGGER.debug("[Enpal WebSocket] Incrementally patched %d sensor(s)", patched)
 
     # ------------------------------------------------------------------
     # Blazor protocol messages
