@@ -20,16 +20,17 @@ Eine Home Assistant Custom Integration zur lokalen Überwachung von Enpal Solara
 
 ---
 
-> ## ⚠️ Beta 2.9.9b3 — Firmware 8.50 erforderlich
+> ## ⚠️ Beta 2.9.9b4 — Firmware 8.50 erforderlich
 >
 > Diese Beta-Version ist auf die Enpal-Firmware **Solar Rel. 8.50.1-773465 (27.05.2026)** ausgerichtet und damit getestet.
 >
 > - Der **WebSocket-Modus** (Echtzeit-Daten) und die **native Wallbox-Steuerung ohne Add-on** setzen Firmware **8.50** voraus.
 > - Das **inkrementelle RenderBatch-Parsing** (neu in 2.9.9b3) senkt die CPU-Last der Enpal Box. Es basiert auf dem Datenformat von Firmware **8.50**.
+> - **Wallbox-Status-Erkennung verbessert (neu in 2.9.9b4):** Findet die Integration bei aktiver Wallbox-Steuerung keinen passenden Status-Sensor, erscheint eine Reparatur-Meldung in Home Assistant. Darüber wählst du den richtigen Sensor direkt aus.
 > - Auf älteren Firmware-Ständen läuft weiterhin der **HTML-Polling-Modus (Legacy)**, ohne die neuen Echtzeit- und Wallbox-Funktionen.
 > - **Wallbox im WebSocket-Modus:** Das Wallbox Add-on bzw. die Wallbox App wird nicht mehr benötigt. Die Integration steuert die Wallbox direkt. Stoppe das alte Add-on bzw. die App in diesem Fall, sonst kommt es zu doppelten Steuerbefehlen.
 > - **Fehlende Sensoren:** Seit Firmware **8.50** stellt Enpal einige Sensoren nicht mehr bereit. Die Integration kann das nicht ändern. Betroffene Entitäten kannst du in Home Assistant gefahrlos löschen.
-> - Lege vor der Installation ein **Home Assistant-Backup** an. Details in den [Release Notes 2.9.9b3](docs/RELEASE_NOTES_2.9.9b3.md).
+> - Lege vor der Installation ein **Home Assistant-Backup** an. Details in den [Release Notes 2.9.9b4](docs/RELEASE_NOTES_2.9.9b4.md).
 
 ---
 
@@ -283,6 +284,9 @@ Enpal aktualisiert gelegentlich die Firmware, was zu temporär fehlenden Sensore
 2. Wallbox Add-on / App in Integration aktiviert?
 3. Add-on / App Logs prüfen: **Einstellungen** → **Add-ons** / **Apps** → **Enpal Wallbox Control** → **Protokoll**
 4. Sensor `sensor.wallbox_status` vorhanden und aktualisiert?
+
+> ℹ️ **Wallbox-Status bleibt `unknown` (seit 2.9.9b4):**
+> Je nach Firmware liefert die Enpal Box den Status-Sensor unter verschiedenen Namen. Findet die Integration bei aktiver Wallbox-Steuerung keinen passenden Status-Sensor, legt sie eine Reparatur-Meldung an (**Einstellungen → System → Reparaturen**). Über **Beheben** wählst du den richtigen Sensor aus. Danach lädt die Integration neu und der Status wird angezeigt.
 
 </details>
 

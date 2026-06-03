@@ -103,6 +103,9 @@ WALLBOX_STATUS_SOURCE_CANDIDATES = [
     # at all (1/0), NOT the vehicle connection/charge state, so it is intentionally
     # NOT used here.
     "status_wallbox_connector_1",
+    # Some firmware variants (e.g. Enpal ArC GEN2 SW 2.3.1) expose the same value
+    # as Status.Connector.1 -> "Wallbox: Status Connector 1" -> this key instead.
+    "wallbox_status_connector_1",
 ]
 
 # --- Date/Time Formats ---

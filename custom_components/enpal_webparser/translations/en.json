@@ -64,5 +64,24 @@
       "unreachable": "The URL could not be reached - please check the connection and address.",
       "wallbox_unreachable": "The Wallbox API is not reachable. Make sure the add-on is running and accessible! Test: http://Home-Assistant-IP-ADDRESS:36725/wallbox/status"
     }
+  },
+  "issues": {
+    "wallbox_status_source_missing": {
+      "title": "Wallbox status sensor could not be detected",
+      "fix_flow": {
+        "step": {
+          "select": {
+            "title": "Select Wallbox status sensor",
+            "description": "Wallbox control is enabled, but no matching status sensor was detected automatically. This can happen with some firmware versions that use a different sensor name. Pick the sensor that shows the Wallbox status (e.g. Available/Charging).",
+            "data": {
+              "wallbox_status_source": "Wallbox status sensor"
+            }
+          }
+        },
+        "abort": {
+          "entry_not_found": "The integration entry could no longer be found."
+        }
+      }
+    }
   }
 }

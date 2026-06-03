@@ -64,5 +64,24 @@
       "unreachable": "Die URL konnte nicht erreicht werden - bitte Verbindung und Adresse prüfen.",
       "wallbox_unreachable": "Die Wallbox-API ist nicht erreichbar. Stelle sicher, dass das Add-on läuft und erreichbar ist! Test: http://Homeassistant-IP-ADRESSE:36725/wallbox/status"
     }
+  },
+  "issues": {
+    "wallbox_status_source_missing": {
+      "title": "Wallbox-Status-Sensor konnte nicht erkannt werden",
+      "fix_flow": {
+        "step": {
+          "select": {
+            "title": "Wallbox-Status-Sensor auswählen",
+            "description": "Die Wallbox-Steuerung ist aktiv, aber es wurde automatisch kein passender Status-Sensor gefunden. Das kommt bei manchen Firmware-Versionen vor, die einen anderen Sensornamen verwenden. Wähle den Sensor aus, der den Wallbox-Status zeigt (z. B. Available/Charging).",
+            "data": {
+              "wallbox_status_source": "Wallbox-Status-Sensor"
+            }
+          }
+        },
+        "abort": {
+          "entry_not_found": "Der Integrations-Eintrag wurde nicht mehr gefunden."
+        }
+      }
+    }
   }
 }

@@ -26,6 +26,7 @@ This is a Home Assistant custom integration that reads data from local Enpal sol
 - **`sensor.py`**: Platform setup with DataUpdateCoordinator, fallback to last known data on errors, cumulative energy sensors
 - **`config_flow.py`**: Multi-step UI configuration with auto-discovery and manual setup options, URL validation, group selection, wallbox toggle
 - **`discovery.py`**: Network scanning utilities for auto-discovering Enpal boxes on local subnets
+- **`repairs.py`**: HA repair flow. Surfaces a fixable issue when wallbox control is enabled but no wallbox status source could be auto-detected; the flow lets the user pick the raw sensor and writes it to the `wallbox_status_source` option (see below)
 - **`wallbox_api.py`**: Centralized API client for all wallbox communication. Blazor-first (`_control`) with add-on (port 36725) fallback; not coupled to `use_native`
 - **`api/websocket_client.py`**: Blazor SignalR client. Connect/handshake, ping loop, message read loop. Handles `JS.RenderBatch` pushes incrementally (see below) and exposes `_scrape_and_parse()` as the full-scrape baseline source
 - **`api/render_batch.py`**: Decodes the Blazor RenderBatch binary payload (`parse_render_batch_strings`, `extract_changed_rows`, `is_patchable_value`). Pure functions, defensive: returns `[]` on malformed/empty frames
@@ -147,11 +148,12 @@ _LOGGER.info("[Enpal] Your message: %s", variable)  # Always prefix with [Enpal]
 2. **Timestamp Parsing**: Use `ENPAL_TIMESTAMP_FORMAT = "%m/%d/%Y %H:%M:%S"` - Enpal uses MM/DD/YYYY format
 3. **Unit Conversion**: Wh → kWh conversion happens in `normalize_value_and_unit()` to match HA energy dashboard expectations
 4. **Wallbox Status Dependency**: Switch/select entities listen to `sensor.wallbox_status` state changes - ensure sensor exists before enabling controls
-5. **Test Isolation**: Tests don't use pytest parametrize - each test explicitly constructs scenarios for clarity
+5. **Wallbox status source naming varies by firmware**: The raw status sensor can be `Status.Wallbox.Connector.1` (→ `status_wallbox_connector_1`) or `Status.Connector.1` (→ `wallbox_status_connector_1`, e.g. Enpal ArC GEN2). Both are in `WALLBOX_STATUS_SOURCE_CANDIDATES` (`const.py`). `Status.Wallbox.Connected` (1/0 attach flag) is intentionally NOT a candidate. If auto-detect fails, `sensor.py` `_manage_wallbox_status_issue()` raises a repair issue and `repairs.py` lets the user pick the source.
+6. **Test Isolation**: Tests don't use pytest parametrize - each test explicitly constructs scenarios for clarity
 
 ## Branch Context
-Current branch: `dev` (manifest version `2.9.9b3`).
-Recent work: Firmware-8.50 adaptation. WebSocket/native wallbox mode, dynamic runtime sensor creation with `RestoreEntity`, and Phase 4 = incremental RenderBatch parsing to reduce the Enpal box CPU load (fast-path diff + 60 s full-scrape safety net).
+Current branch: issue-127 fix branch (manifest version `2.9.9b4`).
+Recent work: Firmware-8.50 adaptation (WebSocket/native wallbox mode, dynamic runtime sensor creation with `RestoreEntity`, incremental RenderBatch parsing). 2.9.9b4 adds the second wallbox status candidate (`wallbox_status_connector_1`) and an HA repair issue + fix flow (`repairs.py`) for unresolved wallbox status sources.
 
 ## Documentation Writing Style (README, Release Notes, German user-facing docs)
 User-facing docs are written in German. Avoid AI-typical phrasing and "AI slop". Target style: short, concrete declarative sentences.
