@@ -28,6 +28,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
@@ -74,6 +75,39 @@ def _find_wallbox_source(data, configured, candidates):
         if candidate in available:
             return candidate
     return None
+
+
+def _wallbox_status_issue_id(entry: ConfigEntry) -> str:
+    return f"wallbox_status_source_missing_{entry.entry_id}"
+
+
+def _manage_wallbox_status_issue(hass, entry, data, status_source) -> None:
+    """Surface a repairs issue when the wallbox status source can't be resolved.
+
+    Only raised when the box actually exposes Wallbox-group sensors (so the data
+    is there but the name did not match any auto-detect candidate). In that case
+    the user can pick the correct sensor via the repair flow, which writes it to
+    the ``wallbox_status_source`` option.
+    """
+    issue_id = _wallbox_status_issue_id(entry)
+    has_wallbox_sensors = any(
+        "wallbox" in make_id(s.get("name", "")) for s in (data or [])
+    )
+    if status_source is None and has_wallbox_sensors:
+        _LOGGER.warning(
+            "[Enpal] Wallbox enabled but no status source matched; raising repair issue"
+        )
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            issue_id,
+            is_fixable=True,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="wallbox_status_source_missing",
+            data={"entry_id": entry.entry_id},
+        )
+    else:
+        ir.async_delete_issue(hass, DOMAIN, issue_id)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
@@ -247,6 +281,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             entry.options.get("wallbox_status_source"),
             WALLBOX_STATUS_SOURCE_CANDIDATES,
         )
+
+        _manage_wallbox_status_issue(hass, entry, coordinator.data, status_source)
 
         if mode_source or status_source:
             _LOGGER.info(
