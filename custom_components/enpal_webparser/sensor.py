@@ -28,6 +28,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.event import async_track_state_change_event
@@ -41,20 +42,73 @@ from homeassistant.helpers.update_coordinator import (
 
 from .entity_factory import build_sensor_entity
 
-from .wallbox_api import WallboxApiClient
 from .utils import (
     make_id,
     parse_enpal_html_sensors
 )
+
+from .api import EnpalWebSocketClient, EnpalHtmlClient, EnpalApiClient
 
 from .const import (
     DEFAULT_INTERVAL,
     DEFAULT_TIMEOUT,
     DEFAULT_URL,
     DOMAIN,
+    WALLBOX_MODE_SOURCE_CANDIDATES,
+    WALLBOX_STATUS_SOURCE_CANDIDATES,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _find_wallbox_source(data, configured, candidates):
+    """Resolve which raw Wallbox sensor (make_id key) provides a value.
+
+    Returns the configured key if present in the current coordinator data,
+    otherwise the first matching auto-detect candidate, or ``None`` if neither
+    is available (e.g. older firmware that does not expose the value).
+    """
+    available = {make_id(s.get("name", "")) for s in (data or [])}
+    if configured and configured not in (None, "", "auto") and configured in available:
+        return configured
+    for candidate in candidates:
+        if candidate in available:
+            return candidate
+    return None
+
+
+def _wallbox_status_issue_id(entry: ConfigEntry) -> str:
+    return f"wallbox_status_source_missing_{entry.entry_id}"
+
+
+def _manage_wallbox_status_issue(hass, entry, data, status_source) -> None:
+    """Surface a repairs issue when the wallbox status source can't be resolved.
+
+    Only raised when the box actually exposes Wallbox-group sensors (so the data
+    is there but the name did not match any auto-detect candidate). In that case
+    the user can pick the correct sensor via the repair flow, which writes it to
+    the ``wallbox_status_source`` option.
+    """
+    issue_id = _wallbox_status_issue_id(entry)
+    has_wallbox_sensors = any(
+        "wallbox" in make_id(s.get("name", "")) for s in (data or [])
+    )
+    if status_source is None and has_wallbox_sensors:
+        _LOGGER.warning(
+            "[Enpal] Wallbox enabled but no status source matched; raising repair issue"
+        )
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            issue_id,
+            is_fixable=True,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="wallbox_status_source_missing",
+            data={"entry_id": entry.entry_id},
+        )
+    else:
+        ir.async_delete_issue(hass, DOMAIN, issue_id)
+
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
     _LOGGER.info("[Enpal] sensor.py async_setup_entry started")
@@ -63,25 +117,40 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     interval = entry.options.get("interval", DEFAULT_INTERVAL)
     timeout = entry.options.get("timeout", DEFAULT_TIMEOUT)
     groups = entry.options.get("groups", [])
-    _LOGGER.debug("[Enpal] Configuration - URL: %s, Interval: %s, Groups: %s", url, interval, groups)
+    data_source = entry.options.get("data_source", "html")  # Default to HTML for backward compatibility
+    
+    _LOGGER.info("[Enpal] Configuration - URL: %s, Interval: %s, Groups: %s, Data Source: %s", 
+                 url, interval, groups, data_source)
+
+    # Create API client based on data source
+    # Extract base URL (without /deviceMessages) for both clients
+    api_client: EnpalApiClient
+    base_url = url.replace("/deviceMessages", "").rstrip("/")
+    
+    if data_source == "websocket":
+        _LOGGER.info("[Enpal] Using WebSocket client (push mode)")
+        api_client = EnpalWebSocketClient(base_url, groups=groups)
+    else:
+        _LOGGER.info("[Enpal] Using HTML client")
+        api_client = EnpalHtmlClient(base_url, groups=groups)
 
     last_successful_data = []
 
     async def async_update_data():
         nonlocal last_successful_data
         try:
-            session = async_get_clientsession(hass)
-            async with session.get(url, timeout=timeout) as resp:
-                if resp.status != 200:
-                    raise Exception(f"Unexpected status code: {resp.status}")
-                html = await resp.text()
-
-            _LOGGER.debug("[Enpal] HTML content fetched successfully from %s", url)
-            soup = BeautifulSoup(html, 'html.parser')
-            cards = soup.find_all("div", class_="card")
-            _LOGGER.debug("[Enpal] Found %d card(s) in HTML", len(cards))
-
-            sensors = parse_enpal_html_sensors(html, groups)
+            # Connect if not already connected
+            if not api_client.is_connected():
+                connected = await api_client.connect()
+                if not connected:
+                    raise Exception(f"Failed to connect to Enpal Box using {data_source}")
+            
+            # Fetch data using unified interface
+            result = await api_client.fetch_data()
+            sensors = result['sensors']
+            
+            _LOGGER.debug("[Enpal] Fetched %d sensors from %s", len(sensors), result['source'])
+            last_successful_data = sensors
             
             return sensors
 
@@ -93,6 +162,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                 _LOGGER.exception("[Enpal] No previous data available")
                 raise UpdateFailed(f"Initial data fetch failed: {e}")
 
+    # Both modes use the configured interval for polling.
+    # WebSocket additionally processes any server-pushed data between polls.
     coordinator = DataUpdateCoordinator(
         hass,
         logger=_LOGGER,
@@ -100,6 +171,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         update_method=async_update_data,
         update_interval=timedelta(seconds=interval),
     )
+    
+    # Store API client reference for cleanup
+    coordinator.api_client = api_client
+
+    # Register push callback for WebSocket client
+    if data_source == "websocket" and isinstance(api_client, EnpalWebSocketClient):
+        async def _on_push_data(result: dict) -> None:
+            """Handle push data from WebSocket - update coordinator immediately."""
+            nonlocal last_successful_data
+            sensors = result.get('sensors', [])
+            if sensors:
+                last_successful_data = sensors
+                coordinator.async_set_updated_data(sensors)
+                _LOGGER.debug(
+                    "[Enpal] Push update: %d sensors received", len(sensors)
+                )
+
+        api_client.set_data_callback(_on_push_data)
 
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN].setdefault("cumulative_energy_state", {
@@ -114,10 +203,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     for sensor in coordinator.data:
         _LOGGER.info("[Enpal]   Name: %s -> UID: %s", sensor["name"], make_id(sensor["name"]))
 
+    use_wallbox = entry.options.get("use_wallbox", False)
+
+    # Track which sensor unique_ids we have already created so we can add new
+    # ones dynamically when they appear in later coordinator updates.  Some
+    # Enpal sensors (e.g. Energy.Consumption.Total.Lifetime) appear and
+    # disappear intermittently and would otherwise never get an entity if they
+    # were missing at startup.
+    created_uids: set[str] = set()
+
     entities = []
     for sensor_dict in coordinator.data:
         _LOGGER.debug("[Enpal] Adding sensor entity: %s", sensor_dict["name"])
-        entities.append(build_sensor_entity(sensor_dict, coordinator))
+        created_uids.add(make_id(sensor_dict.get("name", "")))
+        entities.append(build_sensor_entity(sensor_dict, coordinator, use_wallbox=use_wallbox))
 
 
     # Create cumulative energy sensor with smart fallback for different inverter types
@@ -165,47 +264,110 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     entities.append(CumulativeEnergySensor(hass, coordinator, [source_sensor], interval))
     entities.append(DailyResetFromEntitySensor(hass, "sensor.inverter_energy_produced_total_dc"))
 
-    if entry.options.get("use_wallbox_addon", False):
-        _LOGGER.info("[Enpal] Wallbox add-on enabled, setting up coordinator")
+    if entry.options.get("use_wallbox", False):
+        _LOGGER.info("[Enpal] Wallbox control enabled, setting up sensors")
 
-        api_client = WallboxApiClient(hass)
-        wallbox_data = {}
-
-        async def async_wallbox_update():
-            nonlocal wallbox_data
-            try:
-                data = await api_client.get_status()
-                if data is None:
-                    raise Exception("Wallbox API returned None")
-                
-                _LOGGER.debug("[Enpal] Wallbox status data: %s", data)
-                wallbox_data = data
-                return data
-            except Exception as e:
-                if wallbox_data:
-                    _LOGGER.warning("[Enpal] Wallbox update failed - using last known data: %s", e)
-                    return wallbox_data
-                else:
-                    _LOGGER.warning("[Enpal] Wallbox update failed - no previous data yet: %s", e)
-                    raise UpdateFailed(f"Wallbox update failed and no previous data: {e}")
-
-        wallbox_coordinator = DataUpdateCoordinator(
-            hass,
-            logger=_LOGGER,
-            name="Wallbox Status",
-            update_method=async_wallbox_update,
-            update_interval=timedelta(seconds=interval),
+        # Firmware 8.50+: charge mode and connection state are exposed directly
+        # on /deviceMessages (group "Wallbox"). Prefer those values from the main
+        # coordinator and only fall back to polling the legacy addon when the box
+        # does not expose them.
+        mode_source = _find_wallbox_source(
+            coordinator.data,
+            entry.options.get("wallbox_mode_source"),
+            WALLBOX_MODE_SOURCE_CANDIDATES,
+        )
+        status_source = _find_wallbox_source(
+            coordinator.data,
+            entry.options.get("wallbox_status_source"),
+            WALLBOX_STATUS_SOURCE_CANDIDATES,
         )
 
-        hass.async_create_task(wallbox_coordinator.async_refresh())
+        _manage_wallbox_status_issue(hass, entry, coordinator.data, status_source)
 
-        entities.extend([
-            WallboxModeSensor(wallbox_coordinator),
-            WallboxStatusSensor(wallbox_coordinator),
-        ])
-        _LOGGER.debug("[Enpal] Wallbox-Sensoren hinzugefügt")
+        if mode_source or status_source:
+            _LOGGER.info(
+                "[Enpal] Using native wallbox status from /deviceMessages "
+                "(mode=%s, status=%s)",
+                mode_source,
+                status_source,
+            )
+            if mode_source:
+                entities.append(WallboxNativeModeSensor(coordinator, mode_source))
+            if status_source:
+                entities.append(WallboxNativeStatusSensor(coordinator, status_source))
+        else:
+            _LOGGER.info(
+                "[Enpal] Native wallbox status not found, falling back to addon poll"
+            )
+            # Use shared wallbox client from entry data
+            entry_data = hass.data[DOMAIN].get(entry.entry_id, {})
+            wallbox_api_client = entry_data.get("wallbox_client")
+            if wallbox_api_client is None:
+                _LOGGER.error("[Enpal] No wallbox client available, skipping wallbox sensors")
+            else:
+                wallbox_data = {}
+
+                async def async_wallbox_update():
+                    nonlocal wallbox_data
+                    try:
+                        data = await wallbox_api_client.get_status()
+                        if data is None:
+                            raise Exception("Wallbox API returned None")
+
+                        _LOGGER.debug("[Enpal] Wallbox status data: %s", data)
+                        wallbox_data = data
+                        return data
+                    except Exception as e:
+                        if wallbox_data:
+                            _LOGGER.warning("[Enpal] Wallbox update failed - using last known data: %s", e)
+                            return wallbox_data
+                        else:
+                            _LOGGER.warning("[Enpal] Wallbox update failed - no previous data yet: %s", e)
+                            raise UpdateFailed(f"Wallbox update failed and no previous data: {e}")
+
+                wallbox_coordinator = DataUpdateCoordinator(
+                    hass,
+                    logger=_LOGGER,
+                    name="Wallbox Status",
+                    update_method=async_wallbox_update,
+                    update_interval=timedelta(seconds=interval),
+                )
+
+                hass.async_create_task(wallbox_coordinator.async_refresh())
+
+                entities.extend([
+                    WallboxModeSensor(wallbox_coordinator),
+                    WallboxStatusSensor(wallbox_coordinator),
+                ])
+                _LOGGER.debug("[Enpal] Wallbox-Sensoren hinzugefügt")
 
     async_add_entities(entities)
+
+    @callback
+    def _async_add_new_sensors() -> None:
+        """Add entities for sensors that appear after startup.
+
+        Enpal sensors can appear/disappear between updates.  Whenever the
+        coordinator reports a sensor we have not created an entity for yet,
+        build and register it on the fly.  Existing entities keep their last
+        value when a sensor temporarily disappears (handled in the entity).
+        """
+        if not coordinator.data:
+            return
+        new_entities = []
+        for sensor_dict in coordinator.data:
+            uid = make_id(sensor_dict.get("name", ""))
+            if not uid or uid in created_uids:
+                continue
+            created_uids.add(uid)
+            _LOGGER.info("[Enpal] New sensor appeared, adding entity: %s", sensor_dict["name"])
+            new_entities.append(
+                build_sensor_entity(sensor_dict, coordinator, use_wallbox=use_wallbox)
+            )
+        if new_entities:
+            async_add_entities(new_entities)
+
+    entry.async_on_unload(coordinator.async_add_listener(_async_add_new_sensors))
 
 
 class CumulativeEnergySensor(SensorEntity, RestoreEntity):  
@@ -220,7 +382,8 @@ class CumulativeEnergySensor(SensorEntity, RestoreEntity):
         self._coordinator = coordinator
         self._source_candidates = [make_id(name) for name in sensor_names]
         self._active_source_uid = None  # Will be determined from available sensors
-        self._interval_hours = interval_seconds / 3600
+        self._fallback_interval_hours = interval_seconds / 3600
+        self._last_update_time = None  # Track real elapsed time between updates
         self._state = self.hass.data[DOMAIN]["cumulative_energy_state"]
         self._value = None
         self._last_updated = None
@@ -268,16 +431,32 @@ class CumulativeEnergySensor(SensorEntity, RestoreEntity):
                 return
         
         # Now process the update with the active source
+        now = datetime.now()
         for sensor in self._coordinator.data:
             if make_id(sensor["name"]) == self._active_source_uid:
                 try:
                     power_watt = float(sensor["value"])
-                    energy_kwh = power_watt * self._interval_hours / 1000
+
+                    # Use actual elapsed time between updates instead of
+                    # the configured interval.  In WebSocket mode, push
+                    # updates can arrive much more frequently than the
+                    # polling interval, which would otherwise multiply
+                    # the energy by the wrong factor.
+                    if self._last_update_time is not None:
+                        elapsed_hours = (now - self._last_update_time).total_seconds() / 3600
+                    else:
+                        # First update after start/restore — use the
+                        # configured interval as a reasonable fallback.
+                        elapsed_hours = self._fallback_interval_hours
+
+                    energy_kwh = power_watt * elapsed_hours / 1000
                     if self._value is None:
                         self._value = 0.0
                     self._value += energy_kwh
-                    self._last_updated = datetime.now().isoformat()
-                    _LOGGER.debug("[Enpal] +%.5f kWh -> Total: %.3f kWh", energy_kwh, self._value)
+                    self._last_update_time = now
+                    self._last_updated = now.isoformat()
+                    _LOGGER.debug("[Enpal] +%.5f kWh (%.1fs elapsed) -> Total: %.3f kWh",
+                                  energy_kwh, elapsed_hours * 3600, self._value)
                 except Exception as e:
                     _LOGGER.warning("[Enpal] Error in energy calculation: %s", e)
                 break
@@ -398,3 +577,55 @@ class WallboxModeSensor(WallboxCoordinatorEntity):
 class WallboxStatusSensor(WallboxCoordinatorEntity):
     def __init__(self, coordinator):
         super().__init__(coordinator, "Wallbox Status", "wallbox_status", "status")
+
+
+class WallboxNativeSensor(CoordinatorEntity, SensorEntity):
+    """Wallbox sensor fed from the main /deviceMessages coordinator.
+
+    Firmware 8.50+ exposes the wallbox charge mode and connection state on the
+    deviceMessages page, so they no longer require polling the external addon.
+    The entity reuses the same unique_id/name as the legacy addon-based sensors
+    so that select/switch/button references (e.g. ``sensor.wallbox_lademodus``)
+    keep working unchanged.
+    """
+
+    def __init__(self, coordinator, name, unique_id, source_key, lower=False):
+        super().__init__(coordinator)
+        self._attr_name = str(name)
+        self._attr_unique_id = str(unique_id)
+        self._source_key = source_key
+        self._lower = lower
+        self._attr_icon = "mdi:ev-station"
+        self._attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    @cached_property
+    def device_info(self) -> DeviceInfo:
+        return DeviceInfo(
+            identifiers={(DOMAIN, "enpal_device")},
+            name="Enpal Webgerät",
+            manufacturer="Enpal",
+            model="Webparser",
+        )
+
+    @property
+    def native_value(self) -> StateType:
+        for sensor in (self.coordinator.data or []):
+            if make_id(sensor.get("name", "")) == self._source_key:
+                value = sensor.get("value")
+                if value is not None and self._lower:
+                    return str(value).lower()
+                return value
+        return None
+
+
+class WallboxNativeModeSensor(WallboxNativeSensor):
+    def __init__(self, coordinator, source_key):
+        super().__init__(coordinator, "Wallbox Lademodus", "wallbox_mode", source_key)
+
+
+class WallboxNativeStatusSensor(WallboxNativeSensor):
+    def __init__(self, coordinator, source_key):
+        # Status is compared case-sensitively elsewhere (state == "charging"),
+        # so normalize the raw value (e.g. "Charging") to lower case.
+        super().__init__(coordinator, "Wallbox Status", "wallbox_status", source_key, lower=True)
+

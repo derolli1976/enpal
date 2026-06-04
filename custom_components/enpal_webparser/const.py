@@ -25,6 +25,11 @@ DEFAULT_URL = "http://192.168.1.1/deviceMessages"  # Placeholder - use discovery
 DEFAULT_INTERVAL = 60
 DEFAULT_TIMEOUT = 30
 
+# --- Firmware ---
+# Minimum Enpal firmware (major, minor) required for WebSocket mode and native
+# wallbox control (Solar Rel. 8.50). Older firmware only supports HTML polling.
+WEBSOCKET_MIN_FIRMWARE = (8, 50)
+
 DEFAULT_GROUPS = [
     "Wallbox",
     "Battery",
@@ -35,8 +40,7 @@ DEFAULT_GROUPS = [
     "Heatpump",
 ]
 
-DEFAULT_USE_WALLBOX_ADDON = False
-DEFAULT_WALLBOX_API_ENDPOINT = "http://localhost:36725/wallbox"
+DEFAULT_USE_WALLBOX = False
 
 # --- Device Class/Unit Mappings ---
 DEFAULT_UNITS = {
@@ -79,9 +83,35 @@ STATE_CLASS_OVERRIDES = {
 # --- Wallbox Mode Mapping ---
 WALLBOX_MODE_MAP = {
     "eco": "Eco",
-    "fast": "Full",
+    "full": "Full",
     "solar": "Solar",
+    "smart": "Smart",
 }
+
+# Legacy mapping for backward compatibility (addon used "fast" for "Full")
+WALLBOX_LEGACY_MODE_MAP = {
+    "fast": "full",
+}
+
+# --- Wallbox native sources (firmware 8.50) ---
+# Since firmware 8.50 the wallbox charge mode and connection state are exposed
+# directly on /deviceMessages (group "Wallbox"). These are the make_id() keys of
+# the raw sensors we prefer when feeding the dedicated "Wallbox Lademodus" and
+# "Wallbox Status" sensors, in priority order. Used for auto-detection when the
+# user has not explicitly selected a source in the options flow.
+WALLBOX_MODE_SOURCE_CANDIDATES = [
+    "wallbox_mode_charge_connector_1",  # Mode.Charge.Connector.1 -> Solar/Eco/Fast
+]
+WALLBOX_STATUS_SOURCE_CANDIDATES = [
+    # Status.Wallbox.Connector.1 -> Available/Charging (reflects the vehicle/charge state).
+    # NOTE: Status.Wallbox.Connected only indicates whether a wallbox is attached
+    # at all (1/0), NOT the vehicle connection/charge state, so it is intentionally
+    # NOT used here.
+    "status_wallbox_connector_1",
+    # Some firmware variants (e.g. Enpal ArC GEN2 SW 2.3.1) expose the same value
+    # as Status.Connector.1 -> "Wallbox: Status Connector 1" -> this key instead.
+    "wallbox_status_connector_1",
+]
 
 # --- Date/Time Formats ---
 ENPAL_TIMESTAMP_FORMAT = "%m/%d/%Y %H:%M:%S"

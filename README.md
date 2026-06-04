@@ -10,7 +10,7 @@
 [![Pytest](https://github.com/derolli1976/enpal/actions/workflows/tests.yaml/badge.svg)](https://github.com/derolli1976/enpal/actions/workflows/tests.yaml)
 [![CodeQL](https://github.com/derolli1976/enpal/actions/workflows/codeql.yaml/badge.svg)](https://github.com/derolli1976/enpal/actions/workflows/codeql.yaml)
 [![Bandit](https://github.com/derolli1976/enpal/actions/workflows/bandit.yaml/badge.svg)](https://github.com/derolli1976/enpal/actions/workflows/bandit.yaml)
-![Enpal_version](https://img.shields.io/badge/tested%20with%20enpal%20firmware-Solar%20Rel.%208.49.2--676385%20(27.03.2026)-blue)
+![Enpal_version](https://img.shields.io/badge/tested%20with%20enpal%20firmware-Solar%20Rel.%208.50.1--773465%20(27.05.2026)-blue)
 
 [![hacs_install](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=derolli1976&repository=enpal&category=integration)
 
@@ -20,16 +20,36 @@ Eine Home Assistant Custom Integration zur lokalen Überwachung von Enpal Solara
 
 ---
 
+## 🆕 Neu in Version 3.0.0
+
+Version 3.0.0 bringt einen Echtzeit-Modus und eine native Wallbox-Steuerung.
+
+- **WebSocket-Modus (Echtzeit):** Sensor-Werte werden sofort aktualisiert statt nur im Intervall. Setzt Firmware **8.50** voraus.
+- **Native Wallbox-Steuerung ohne Add-on:** Im WebSocket-Modus steuert die Integration die Wallbox direkt. Das separate Add-on bzw. die Wallbox App wird nicht mehr benötigt.
+- **Inkrementelles RenderBatch-Parsing:** Senkt die CPU-Last der Enpal Box, weil bei jeder Änderung nur die geänderten Sensoren aktualisiert werden statt der ganzen Seite.
+- **Dynamische Sensoren zur Laufzeit:** Neue Datenpunkte legt die Integration automatisch an. Werte bleiben über einen Neustart erhalten.
+- **Zuverlässigere Wallbox-Status-Erkennung:** Erkennt mehrere Namensvarianten des Status-Sensors. Bei unbekanntem Namen führt eine Reparatur-Meldung durch die manuelle Auswahl.
+
+Details in den [Release Notes 3.0.0](docs/RELEASE_NOTES_3.0.0.md).
+
+> **Hinweis zur Firmware:** Der WebSocket-Modus, die native Wallbox-Steuerung und das RenderBatch-Parsing setzen die Enpal-Firmware **Solar Rel. 8.50.1-773465 (27.05.2026)** voraus. Auf älteren Firmware-Ständen läuft weiterhin der HTML-Polling-Modus (Legacy), ohne die neuen Echtzeit- und Wallbox-Funktionen.
+
+> **Hinweis zu fehlenden Sensoren:** Seit Firmware **8.50** stellt Enpal einige Sensoren nicht mehr bereit. Die Integration kann das nicht ändern. Betroffene Entitäten kannst du in Home Assistant gefahrlos löschen.
+
+---
+
 ## ✨ Features
 
-- **Lokale Kommunikation**: Keine Cloud-Anbindung erforderlich, alle Daten werden lokal im Netzwerk abgerufen
-- **Umfangreiche Sensoren**: Über 100 Datenpunkte für PV-Anlage, Batterie, Inverter, Wallbox und Wärmepumpe
-- **Flexible Sensor-Gruppen**: Wählbare Kategorien (Battery, Inverter, Wallbox, Heatpump, etc.)
-- **Auto-Discovery**: Automatische Erkennung der Enpal Box im lokalen Netzwerk
-- **Energy Dashboard**: Volle Unterstützung für Home Assistant Energy Dashboard
-- **Wallbox-Steuerung**: Optional über separates Add-on (Lademodus, Start/Stop)
-- **UI-Konfiguration**: Vollständige Einrichtung über die Home Assistant Oberfläche
-- **Mehrsprachig**: Deutsche und englische Übersetzungen
+- **Lokale Kommunikation:** Keine Cloud-Anbindung erforderlich, alle Daten werden lokal im Netzwerk abgerufen.
+- **Zwei Datenquellen:** WebSocket-Echtzeitmodus (Firmware 8.50) oder HTML-Polling (Legacy), mit automatischer Erkennung der besten Methode.
+- **Umfangreiche Sensoren:** Über 100 Datenpunkte für PV-Anlage, Batterie, Inverter, Wallbox und Wärmepumpe.
+- **Flexible Sensor-Gruppen:** Wählbare Kategorien (Battery, Inverter, Wallbox, Heatpump und weitere).
+- **Auto-Discovery:** Automatische Erkennung der Enpal Box im lokalen Netzwerk.
+- **Energy Dashboard:** Volle Unterstützung für das Home Assistant Energy Dashboard.
+- **Wallbox-Steuerung:** Nativ im WebSocket-Modus oder über separates Add-on im HTML-Modus.
+- **Reparatur-Flow:** Geführte Auswahl des Wallbox-Status-Sensors, falls die automatische Erkennung fehlschlägt.
+- **UI-Konfiguration:** Vollständige Einrichtung über die Home Assistant Oberfläche.
+- **Mehrsprachig:** Deutsche und englische Übersetzungen.
 
 ---
 
@@ -50,10 +70,10 @@ Eine Home Assistant Custom Integration zur lokalen Überwachung von Enpal Solara
 ### Wallbox
 - **Laden**: Ladestand, Leistung, Gesamtenergie
 - **Elektrik**: Spannung, Strom pro Phase, Phasenanzahl
-- **Steuerung**: Lademodus (Eco/Solar/Full), Start/Stop über Add-on
+- **Steuerung**: Lademodus (Eco, Solar, Full, Smart), Start und Stop
 - **Status**: Ladestatus, angebotene Leistung
 
-### Wärmepumpe (NEU in v2.3.0)
+### Wärmepumpe
 - **Temperaturen**: Warmwasser, Außentemperatur
 - **Energie**: Verbrauch (kWh), aktuelle Leistung (kW)
 - **Status**: Betriebsmodus
@@ -85,6 +105,32 @@ Die Integration funktioniert **nur**, wenn die Enpal Box eine lokale Weboberflä
 - Home Assistant Core 2024.1.0 oder höher
 - Enpal Box im selben Netzwerk wie Home Assistant
 - DHCP-aktivierter Router (Enpal Box bezieht IP per DHCP)
+- Für den WebSocket-Modus und die native Wallbox-Steuerung: Enpal-Firmware **Solar Rel. 8.50** oder höher
+
+---
+
+## 🔀 Datenquellen: WebSocket oder HTML
+
+Die Integration kennt zwei Wege, um Daten von der Enpal Box zu lesen. Die Auswahl triffst du im Setup-Assistenten unter **Datenquelle**.
+
+### WebSocket-Modus (Echtzeit, Firmware 8.50)
+Die Integration nutzt die native Schnittstelle der Enpal Box. Das ist dieselbe Technik, die auch die Weboberfläche intern verwendet.
+
+- Sensor-Werte werden sofort aktualisiert.
+- Die Integration hängt nicht an der HTML-Struktur der Webseite.
+- Die Wallbox wird nativ gesteuert, ohne Add-on.
+- Inkrementelles RenderBatch-Parsing senkt die CPU-Last der Box.
+
+### HTML-Polling-Modus (Legacy)
+Die Integration ruft im eingestellten Intervall die Seite `http://<ENPAL-IP>/deviceMessages` ab und liest die Tabellen aus.
+
+- Funktioniert auch auf Boxen ohne WebSocket-Unterstützung.
+- Die Wallbox-Steuerung läuft über ein separates Add-on bzw. die Wallbox App.
+
+### Auswahl der Datenquelle
+- **Auto-detect (empfohlen):** Prüft, ob WebSocket verfügbar ist, und fällt im Zweifel auf HTML-Polling zurück.
+- **WebSocket (Echtzeit):** Erzwingt die WebSocket-Verbindung.
+- **HTML-Polling (Legacy):** Erzwingt die bisherige Methode.
 
 ---
 
@@ -154,17 +200,18 @@ Der Setup-Assistent führt durch folgende Schritte:
 - Bei manueller Eingabe: URL eingeben (z.B. `http://192.168.178.178/deviceMessages`)
 - Die Verbindung wird automatisch getestet
 
-#### Schritt 3: Sensoren konfigurieren
-- **Aktualisierungsintervall**: Empfohlen 60 Sekunden (Minimum 10 Sekunden)
+#### Schritt 3: Sensoren und Datenquelle konfigurieren
+- **Datenquelle**: Auto-detect, WebSocket oder HTML-Polling (siehe [Datenquellen](#-datenquellen-websocket-oder-html))
+- **Aktualisierungsintervall**: Empfohlen 60 Sekunden (Minimum 10 Sekunden). Im WebSocket-Modus steuert dieses Intervall den Vollabgleich im Hintergrund.
 - **Sensor-Gruppen**: Auswahl der gewünschten Kategorien
   - `Battery` - Batterie-Sensoren
   - `Inverter` - Wechselrichter-Sensoren
   - `Wallbox` - Wallbox-Sensoren (falls vorhanden)
   - `Heatpump` - Wärmepumpen-Sensoren (falls vorhanden)
-  - `Site Data` - Standort-/Verbrauchsdaten
+  - `Site Data` - Standort- und Verbrauchsdaten
   - `IoTEdgeDevice` - System-Sensoren
   - `PowerSensor` - Stromsensor-Daten
-- **Wallbox Add-on**: Bei Bedarf aktivieren für Steuerungsfunktionen
+- **Wallbox-Steuerung**: Bei Bedarf aktivieren (siehe [Wallbox-Steuerung](#-wallbox-steuerung-optional))
 
 ### Sensor-Gruppen nachträglich anpassen
 
@@ -182,16 +229,26 @@ Sensor-Gruppen können jederzeit geändert werden:
 
 ## 🚗 Wallbox-Steuerung (Optional)
 
-Für die Steuerung der Enpal Wallbox wird ein separates Add-on, bzw. seit 2026.2 eine eigene "App" benötigt, welche die Kommunikation mit der Wallbox-Hardware übernehmen.
+Die Wallbox-Steuerung aktivierst du in den Integrationseinstellungen. Wie die Steuerung kommuniziert, hängt von der gewählten Datenquelle ab.
 
-### Features des Wallbox Add-ons / der Wallbox App
-- **Lademodus umschalten**: Eco, Solar, Full
-- **Laden starten/stoppen**
-- **Status-Sensoren**: Aktueller Modus, Ladestatus, Leistung
+### WebSocket-Modus (Firmware 8.50): native Steuerung ohne Add-on
 
-### Installation des Add-ons / der App
+Im WebSocket-Modus steuert die Integration die Wallbox direkt. Das separate Wallbox Add-on bzw. die Wallbox App wird nicht mehr benötigt.
 
-1. **Add-on / App Store** in Home Assistant öffnen (Einstellungen - Apps)
+> **Wichtig:** Stoppe das alte Wallbox Add-on bzw. die Wallbox App im WebSocket-Modus. Sonst kommt es zu doppelten Steuerbefehlen.
+
+Unterstützte Funktionen:
+- Lademodus umschalten: Eco, Solar, Full, Smart
+- Laden starten und stoppen
+- Status-Sensoren: aktueller Modus, Ladestatus, Leistung
+
+### HTML-Polling-Modus (Legacy): Steuerung über Add-on
+
+Im HTML-Modus wird für die Wallbox-Steuerung ein separates Add-on benötigt, das die Kommunikation mit der Wallbox-Hardware übernimmt. Seit 2026.2 stellt Home Assistant dies als eigene "App" bereit.
+
+#### Installation des Add-ons / der App
+
+1. **Add-on / App Store** in Home Assistant öffnen (Einstellungen → Apps)
 2. **Drei-Punkte-Menü** (oben rechts) → **Repositories**
 3. Repository-URL hinzufügen:
    ```
@@ -199,7 +256,7 @@ Für die Steuerung der Enpal Wallbox wird ein separates Add-on, bzw. seit 2026.2
    ```
 4. **Enpal Wallbox Control** Add-on / App installieren
 5. Add-on / App starten
-6. In der Enpal Integration **Wallbox Add-on** aktivieren (siehe [Konfiguration](#-konfiguration))
+6. In der Enpal Integration die **Wallbox-Steuerung** aktivieren (siehe [Konfiguration](#-konfiguration))
 
 📚 [Vollständige Wallbox Add-on / App Dokumentation](https://github.com/derolli1976/enpal-wallbox-addon)
 
@@ -249,16 +306,28 @@ Enpal aktualisiert gelegentlich die Firmware, was zu temporär fehlenden Sensore
 
 **Hinweis**: Die Integration kann nur Daten anzeigen, die die Enpal Box bereitstellt. Bei Firmware-Updates können sich verfügbare Datenpunkte ändern.
 
+> ⚠️ **Seit Firmware 8.50 stellt Enpal einige Sensoren nicht mehr bereit.**
+> Die Integration kann das nicht ändern. Fehlende Werte kommen daher, dass die Enpal Box sie nicht mehr liefert. Die dauerhaft nicht mehr verfügbaren Sensoren kannst du in Home Assistant gefahrlos löschen (über **Einstellungen → Geräte & Dienste → Entitäten** die jeweilige Entität auswählen und entfernen). Liefert Enpal einen Sensor später wieder, legt die Integration ihn automatisch neu an.
+
 </details>
 
 <details>
 <summary><b>Wallbox-Steuerung funktioniert nicht</b></summary>
 
-**Prüfungen**:
-1. Wallbox Add-on / App installiert und gestartet?
-2. Wallbox Add-on / App in Integration aktiviert?
-3. Add-on / App Logs prüfen: **Einstellungen** → **Add-ons** / **Apps** → **Enpal Wallbox Control** → **Protokoll**
+**Prüfungen im WebSocket-Modus:**
+1. Datenquelle auf WebSocket (oder Auto-detect mit verfügbarem WebSocket)?
+2. Wallbox-Steuerung in der Integration aktiviert?
+3. Altes Wallbox Add-on bzw. die App gestoppt? Doppelte Steuerung führt zu Konflikten.
 4. Sensor `sensor.wallbox_status` vorhanden und aktualisiert?
+
+**Prüfungen im HTML-Modus:**
+1. Wallbox Add-on bzw. App installiert und gestartet?
+2. Wallbox-Steuerung in der Integration aktiviert?
+3. Add-on bzw. App Logs prüfen: **Einstellungen** → **Add-ons** / **Apps** → **Enpal Wallbox Control** → **Protokoll**
+4. Sensor `sensor.wallbox_status` vorhanden und aktualisiert?
+
+> ℹ️ **Wallbox-Status bleibt `unknown`:**
+> Je nach Firmware liefert die Enpal Box den Status-Sensor unter verschiedenen Namen. Findet die Integration bei aktiver Wallbox-Steuerung keinen passenden Status-Sensor, legt sie eine Reparatur-Meldung an (**Einstellungen → System → Reparaturen**). Über **Beheben** wählst du den richtigen Sensor aus. Danach lädt die Integration neu und der Status wird angezeigt.
 
 </details>
 
@@ -304,10 +373,12 @@ Die Integration ist vollständig mit dem Home Assistant Energy Dashboard kompati
 
 ## 📝 Bekannte Einschränkungen
 
-- **Nur 1. Generation Enpal Boxen** mit lokaler Weboberfläche werden unterstützt
-- **Firmware-Abhängigkeit**: Verfügbare Sensoren können sich durch Enpal-Firmware-Updates ändern
-- **Keine Cloud-Integration**: Die Integration kommuniziert nur lokal, keine Anbindung an Enpal-Cloud
-- **Wallbox-Steuerung**: Benötigt separates Add-on (nicht Teil der Integration)
+- **Nur 1. Generation Enpal Boxen** mit lokaler Weboberfläche werden unterstützt.
+- **Firmware 8.50 für neue Funktionen**: WebSocket-Echtzeitmodus, native Wallbox-Steuerung und das inkrementelle RenderBatch-Parsing setzen Firmware **8.50** voraus. Ältere Stände nutzen den HTML-Polling-Modus.
+- **Sensor-Unterschiede zwischen den Modi**: Im WebSocket-Modus stehen teilweise andere Sensoren zur Verfügung als im HTML-Modus. Siehe [Sensor-Vergleich](docs/SENSOR_COMPARISON.md).
+- **Mehrdeutige Sensoren**: Sensoren mit gleichem Namen in mehreren Gruppen aktualisieren im WebSocket-Modus erst im Vollabgleich-Intervall statt in Echtzeit.
+- **Firmware-Abhängigkeit**: Verfügbare Sensoren können sich durch Enpal-Firmware-Updates ändern.
+- **Keine Cloud-Integration**: Die Integration kommuniziert nur lokal, keine Anbindung an die Enpal-Cloud.
 
 ---
 
@@ -331,7 +402,7 @@ Wenn die Integration hilfreich ist:
 
 > **Dies ist keine offizielle Integration von Enpal.**
 >
-> Dieses Projekt steht in **keinerlei Verbindung zur Enpal B.V.** und ist eine **inoffizielle, privat entwickelte Erweiterung**. Die Integration basiert ausschließlich auf lokal im Netzwerk bereitgestellten HTML-Daten.
+> Dieses Projekt steht in **keinerlei Verbindung zur Enpal B.V.** und ist eine **inoffizielle, privat entwickelte Erweiterung**. Die Integration basiert ausschließlich auf lokal im Netzwerk bereitgestellten Daten.
 >
 > Die Nutzung erfolgt auf **eigene Verantwortung**. Die Funktionalität kann durch Änderungen an der Firmware oder Weboberfläche der Enpal-Anlage jederzeit eingeschränkt oder unterbrochen werden.
 >
@@ -345,5 +416,5 @@ MIT License - siehe [LICENSE](LICENSE) Datei für Details.
 
 ---
 
-**Getestet mit**: Enpal Firmware Solar Rel. 8.47.4-461279 (19.09.2025)
+**Getestet mit**: Enpal Firmware Solar Rel. 8.50.1-773465 (27.05.2026)
 

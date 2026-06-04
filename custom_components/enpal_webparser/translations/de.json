@@ -24,19 +24,19 @@
       },
       "configure": {
         "title": "Enpal Integration konfigurieren",
-        "description": "Einstellungen für Gerät konfigurieren: {url}",
+        "description": "Einstellungen für Gerät konfigurieren: {url}\n\n{firmware_warning}",
         "data": {
           "interval": "Abfrageintervall (in Sekunden) - Weniger als 60 Sekunden wird nicht empfohlen!",
           "timeout": "HTTP-Timeout (in Sekunden, 10-120) - Erhöhen, wenn Sensoren häufig als nicht verfügbar angezeigt werden",
           "groups": "Sensorgruppen auswählen",
-          "use_wallbox_addon": "Wallbox Add-on verwenden (EXPERIMENTELL!) - Das Add-on muss vorher installiert und konfiguriert werden - Bitte die README Datei im Repository beachten!"
+          "use_wallbox": "Wallbox-Steuerung aktivieren (WebSocket-Modus: direkte Verbindung, HTML-Modus: erfordert Wallbox Add-on)"
         }
       }
     },
     "error": {
       "invalid_format": "Ungültige URL - sie muss mit http:// beginnen und eine gültige IP-Adresse oder Host enthalten.",
       "unreachable": "Die URL konnte nicht erreicht werden - bitte Verbindung und Adresse prüfen.",
-      "wallbox_unreachable": "Die Wallbox-API ist nicht erreichbar. Stelle sicher, dass das Add-on läuft und erreichbar ist! Test: http://Homeassistant-IP-ADDRESSE:36725/wallbox/status",
+      "wallbox_unreachable": "Die Wallbox-API ist nicht erreichbar. Stelle sicher, dass das Add-on läuft und erreichbar ist! Test: http://Homeassistant-IP-ADRESSE:36725/wallbox/status",
       "no_devices_found": "Keine Enpal-Geräte in Ihrem Netzwerk gefunden. Bitte verwenden Sie die manuelle Einrichtung."
     },
     "abort": {
@@ -47,20 +47,41 @@
     "step": {
       "init": {
         "title": "Optionen anpassen",
-        "description": "Hier kannst du zusätzliche Einstellungen vornehmen",
+        "description": "Hier kannst du zusätzliche Einstellungen vornehmen\n\n{firmware_warning}\n\n{wallbox_addon_warning}",
         "data": {
           "url": "URL / IP-Adresse der Enpal Box",
           "interval": "Abfrageintervall (in Sekunden) - Weniger als 60 Sekunden wird nicht empfohlen!",
           "timeout": "HTTP-Timeout (in Sekunden, 10-120) - Erhöhen, wenn Sensoren häufig als nicht verfügbar angezeigt werden",
           "groups": "Sensorgruppen auswählen",
-          "use_wallbox_addon": "Wallbox Add-on verwenden (EXPERIMENTELL!) - Das Add-on muss vorher installiert und konfiguriert werden - Bitte die README Datei im Repository beachten!"
+          "use_wallbox": "Wallbox-Steuerung aktivieren (WebSocket-Modus: direkte Verbindung, HTML-Modus: erfordert Wallbox Add-on)",
+          "wallbox_mode_source": "Wallbox-Lademodus-Sensor (Firmware 8.50+) - auf Automatisch lassen, außer der falsche Sensor wird verwendet",
+          "wallbox_status_source": "Wallbox-Status-Sensor (Firmware 8.50+) - auf Automatisch lassen, außer der falsche Sensor wird verwendet"
         }
       }
     },
     "error": {
       "invalid_format": "Ungültige URL - sie muss mit http:// beginnen und eine gültige IP-Adresse oder Host enthalten.",
       "unreachable": "Die URL konnte nicht erreicht werden - bitte Verbindung und Adresse prüfen.",
-      "wallbox_unreachable": "Die Wallbox-API ist nicht erreichbar. Stelle sicher, dass das Add-on läuft und erreichbar ist! Test: http://homeassistant-IP-ADDRESSE:36725/wallbox/status"
+      "wallbox_unreachable": "Die Wallbox-API ist nicht erreichbar. Stelle sicher, dass das Add-on läuft und erreichbar ist! Test: http://Homeassistant-IP-ADRESSE:36725/wallbox/status"
+    }
+  },
+  "issues": {
+    "wallbox_status_source_missing": {
+      "title": "Wallbox-Status-Sensor konnte nicht erkannt werden",
+      "fix_flow": {
+        "step": {
+          "select": {
+            "title": "Wallbox-Status-Sensor auswählen",
+            "description": "Die Wallbox-Steuerung ist aktiv, aber es wurde automatisch kein passender Status-Sensor gefunden. Das kommt bei manchen Firmware-Versionen vor, die einen anderen Sensornamen verwenden. Wähle den Sensor aus, der den Wallbox-Status zeigt (z. B. Available/Charging).",
+            "data": {
+              "wallbox_status_source": "Wallbox-Status-Sensor"
+            }
+          }
+        },
+        "abort": {
+          "entry_not_found": "Der Integrations-Eintrag wurde nicht mehr gefunden."
+        }
+      }
     }
   }
 }

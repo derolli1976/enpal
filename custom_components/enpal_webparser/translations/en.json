@@ -24,12 +24,12 @@
       },
       "configure": {
         "title": "Configure Enpal Integration",
-        "description": "Configure settings for device at: {url}",
+        "description": "Configure settings for device at: {url}\n\n{firmware_warning}",
         "data": {
           "interval": "Polling interval (in seconds) - Intervals below 60 seconds are not recommended!",
           "timeout": "HTTP timeout (in seconds, 10-120) - Increase if sensors frequently become unavailable",
           "groups": "Select sensor groups",
-          "use_wallbox_addon": "Use Wallbox add-on (EXPERIMENTAL!) - The add-on must be installed and configured beforehand - See README in the Repository!"
+          "use_wallbox": "Enable Wallbox control (WebSocket mode: direct connection, HTML mode: requires Wallbox add-on)"
         }
       }
     },
@@ -47,13 +47,15 @@
     "step": {
       "init": {
         "title": "Adjust Options",
-        "description": "Here you can configure additional settings",
+        "description": "Here you can configure additional settings\n\n{firmware_warning}\n\n{wallbox_addon_warning}",
         "data": {
           "url": "URL / IP address of the Enpal Box",
           "interval": "Polling interval (in seconds) - Intervals below 60 seconds are not recommended!",
           "timeout": "HTTP timeout (in seconds, 10-120) - Increase if sensors frequently become unavailable",
           "groups": "Select sensor groups",
-          "use_wallbox_addon": "Use Wallbox add-on (EXPERIMENTAL!) - The add-on must be installed and configured beforehand - See README in the Repository!"
+          "use_wallbox": "Enable Wallbox control (WebSocket mode: direct connection, HTML mode: requires Wallbox add-on)",
+          "wallbox_mode_source": "Wallbox charge mode sensor (firmware 8.50+) - leave on Auto-detect unless the wrong sensor is used",
+          "wallbox_status_source": "Wallbox status sensor (firmware 8.50+) - leave on Auto-detect unless the wrong sensor is used"
         }
       }
     },
@@ -61,6 +63,25 @@
       "invalid_format": "Invalid URL - it must start with http:// and contain a valid IP address or hostname.",
       "unreachable": "The URL could not be reached - please check the connection and address.",
       "wallbox_unreachable": "The Wallbox API is not reachable. Make sure the add-on is running and accessible! Test: http://Home-Assistant-IP-ADDRESS:36725/wallbox/status"
+    }
+  },
+  "issues": {
+    "wallbox_status_source_missing": {
+      "title": "Wallbox status sensor could not be detected",
+      "fix_flow": {
+        "step": {
+          "select": {
+            "title": "Select Wallbox status sensor",
+            "description": "Wallbox control is enabled, but no matching status sensor was detected automatically. This can happen with some firmware versions that use a different sensor name. Pick the sensor that shows the Wallbox status (e.g. Available/Charging).",
+            "data": {
+              "wallbox_status_source": "Wallbox status sensor"
+            }
+          }
+        },
+        "abort": {
+          "entry_not_found": "The integration entry could no longer be found."
+        }
+      }
     }
   }
 }

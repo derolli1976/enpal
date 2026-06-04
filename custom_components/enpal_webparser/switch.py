@@ -32,10 +32,16 @@ _LOGGER = logging.getLogger(__name__)
 
 
 async def async_setup_entry(hass, config_entry, async_add_entities):
-    if not config_entry.options.get("use_wallbox_addon", False):
+    if not config_entry.options.get("use_wallbox", False):
         return
 
-    api_client = WallboxApiClient(hass)
+    # Use shared wallbox client from entry data
+    entry_data = hass.data[DOMAIN].get(config_entry.entry_id, {})
+    api_client = entry_data.get("wallbox_client")
+    if api_client is None:
+        _LOGGER.error("[Enpal] No wallbox client available, skipping switch setup")
+        return
+
     async_add_entities([EnpalWallboxSwitch(hass, api_client)], True)
 
 

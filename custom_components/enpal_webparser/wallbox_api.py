@@ -6,7 +6,9 @@
 #
 # Description:
 #   Centralized Wallbox API client for Enpal wallbox control.
-#   Provides a single interface for all wallbox HTTP communication.
+#   Supports two modes:
+#   - Native: Direct Blazor SignalR connection to /wallbox (no addon needed)
+#   - Legacy: HTTP calls to external wallbox addon on port 36725
 #
 # Author:       Oliver Stock (github.com/derolli1976)
 # License:      MIT
@@ -24,24 +26,109 @@ from typing import Optional
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
-from .const import DEFAULT_WALLBOX_API_ENDPOINT
+# Legacy addon endpoint (kept for backward compatibility)
+_LEGACY_ADDON_ENDPOINT = "http://localhost:36725/wallbox"
 
 _LOGGER = logging.getLogger(__name__)
 
 
 class WallboxApiClient:
-    """Centralized client for Enpal Wallbox API communication."""
+    """Centralized client for Enpal Wallbox control.
 
-    def __init__(self, hass: HomeAssistant, base_url: str = DEFAULT_WALLBOX_API_ENDPOINT):
+    Supports native Blazor mode (direct connection to Enpal Box /wallbox page)
+    or legacy addon mode (HTTP calls to localhost:36725).
+    """
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        base_url: str = _LEGACY_ADDON_ENDPOINT,
+        enpal_base_url: Optional[str] = None,
+        use_native: bool = False,
+    ):
         """Initialize the Wallbox API client.
-        
+
         Args:
             hass: Home Assistant instance
-            base_url: Base URL for the wallbox API (default: from const.py)
+            base_url: Base URL for the legacy wallbox addon API
+            enpal_base_url: Base URL of the Enpal Box (e.g. http://192.168.2.70)
+            use_native: If True, use native Blazor connection instead of addon
         """
         self._hass = hass
         self._base_url = base_url.rstrip("/")
-        _LOGGER.debug("[Enpal] WallboxApiClient initialized with base URL: %s", self._base_url)
+        self._enpal_base_url = enpal_base_url
+        self._use_native = use_native
+        self._blazor_client = None
+
+        if use_native:
+            _LOGGER.info("[Enpal] WallboxApiClient using native Blazor mode (URL: %s)", enpal_base_url)
+        else:
+            _LOGGER.debug("[Enpal] WallboxApiClient using legacy addon mode (URL: %s)", self._base_url)
+
+    async def _ensure_blazor_client(self) -> bool:
+        """Ensure the native Blazor client is connected and not stale.
+
+        The Blazor client is available whenever the Enpal box URL is known,
+        independent of ``use_native`` - this allows control actions (button
+        clicks) to use Blazor even in legacy/HTML status mode.
+        """
+        if not self._enpal_base_url:
+            return False
+
+        from .api.wallbox_client import WallboxBlazorClient
+
+        if self._blazor_client is None:
+            self._blazor_client = WallboxBlazorClient(self._enpal_base_url)
+
+        return await self._blazor_client.ensure_fresh_connection()
+
+    @property
+    def _blazor_enabled(self) -> bool:
+        """Whether Blazor-based control is possible (Enpal box URL known)."""
+        return bool(self._enpal_base_url)
+
+    async def _control(self, action_name: str, blazor_action, addon_endpoint: str) -> bool:
+        """Run a control action, preferring Blazor with addon fallback.
+
+        Args:
+            action_name: Human-readable action name for logging.
+            blazor_action: Zero-arg coroutine function performing the Blazor click.
+            addon_endpoint: Legacy addon endpoint to fall back to (e.g. "/set_eco").
+
+        Returns:
+            True if either the Blazor action or the addon call succeeded.
+        """
+        # Prefer the native Blazor button click (works on firmware >= 8.50 and
+        # does not depend on the external addon).
+        if self._blazor_enabled:
+            if await self._ensure_blazor_client():
+                try:
+                    if await blazor_action():
+                        _LOGGER.info("[Enpal] Wallbox %s via Blazor succeeded", action_name)
+                        return True
+                    _LOGGER.warning(
+                        "[Enpal] Wallbox %s via Blazor returned failure, falling back to addon",
+                        action_name,
+                    )
+                except Exception as e:  # noqa: BLE001 - fall back to addon
+                    _LOGGER.warning(
+                        "[Enpal] Wallbox %s via Blazor raised %s, falling back to addon",
+                        action_name, e,
+                    )
+            else:
+                _LOGGER.warning(
+                    "[Enpal] Blazor client unavailable for %s, falling back to addon",
+                    action_name,
+                )
+
+        # Legacy fallback: HTTP call to the addon on localhost:36725.
+        return await self._post(addon_endpoint)
+
+    async def close(self) -> None:
+        """Close the native Blazor client if active."""
+        if self._blazor_client:
+            await self._blazor_client.close()
+            self._blazor_client = None
 
     async def _post(self, endpoint: str, timeout: int = 30) -> bool:
         """Execute a POST request to the wallbox API.
@@ -110,27 +197,44 @@ class WallboxApiClient:
     async def start_charging(self) -> bool:
         """Start wallbox charging."""
         _LOGGER.info("[Enpal] Starting wallbox charging")
-        return await self._post("/start")
+        return await self._control(
+            "start", lambda: self._blazor_client.start_charging(), "/start"
+        )
 
     async def stop_charging(self) -> bool:
         """Stop wallbox charging."""
         _LOGGER.info("[Enpal] Stopping wallbox charging")
-        return await self._post("/stop")
+        return await self._control(
+            "stop", lambda: self._blazor_client.stop_charging(), "/stop"
+        )
 
     async def set_mode_eco(self) -> bool:
         """Set wallbox to Eco mode."""
         _LOGGER.info("[Enpal] Setting wallbox to Eco mode")
-        return await self._post("/set_eco")
+        return await self._control(
+            "set Eco", lambda: self._blazor_client.set_mode("eco"), "/set_eco"
+        )
 
     async def set_mode_solar(self) -> bool:
         """Set wallbox to Solar mode."""
         _LOGGER.info("[Enpal] Setting wallbox to Solar mode")
-        return await self._post("/set_solar")
+        return await self._control(
+            "set Solar", lambda: self._blazor_client.set_mode("solar"), "/set_solar"
+        )
 
     async def set_mode_full(self) -> bool:
         """Set wallbox to Full mode."""
         _LOGGER.info("[Enpal] Setting wallbox to Full mode")
-        return await self._post("/set_full")
+        return await self._control(
+            "set Full", lambda: self._blazor_client.set_mode("full"), "/set_full"
+        )
+
+    async def set_mode_smart(self) -> bool:
+        """Set wallbox to Smart mode."""
+        _LOGGER.info("[Enpal] Setting wallbox to Smart mode")
+        return await self._control(
+            "set Smart", lambda: self._blazor_client.set_mode("smart"), "/set_smart"
+        )
 
     async def get_status(self, timeout: int = 15) -> Optional[dict]:
         """Get current wallbox status.
@@ -139,8 +243,12 @@ class WallboxApiClient:
             timeout: Request timeout in seconds (default: 15)
         
         Returns:
-            Status dict from API or None if failed
+            Status dict with 'mode' and 'status' keys, or None if failed
         """
+        if self._use_native:
+            if not await self._ensure_blazor_client():
+                return None
+            return await self._blazor_client.get_wallbox_data()
         return await self._get("/status", timeout=timeout)
 
     async def call_and_refresh_sensors(
@@ -151,20 +259,33 @@ class WallboxApiClient:
     ) -> bool:
         """Call API endpoint and refresh related sensors.
         
-        This is a convenience method that:
-        1. Calls the API endpoint
-        2. Waits for wallbox to process
-        3. Triggers sensor updates
+        For native mode, the endpoint is mapped to the corresponding action.
+        For legacy mode, it calls the addon HTTP endpoint directly.
         
         Args:
-            endpoint: API endpoint to call
+            endpoint: API endpoint to call (e.g. "/start", "/set_eco")
             sensor_entities: List of sensor entity IDs to refresh
             wait_time: Seconds to wait before refreshing sensors
             
         Returns:
             True if API call was successful
         """
-        success = await self._post(endpoint)
+        # Map endpoint names to control actions. Each action prefers the native
+        # Blazor client and falls back to the legacy addon when needed, so this
+        # works the same in legacy/HTML and websocket modes.
+        endpoint_map = {
+            "/start": self.start_charging,
+            "/stop": self.stop_charging,
+            "/set_eco": self.set_mode_eco,
+            "/set_solar": self.set_mode_solar,
+            "/set_full": self.set_mode_full,
+            "/set_smart": self.set_mode_smart,
+        }
+        action = endpoint_map.get(endpoint)
+        if action is None:
+            _LOGGER.warning("[Enpal] Unknown wallbox endpoint: %s", endpoint)
+            return False
+        success = await action()
         
         if success and sensor_entities:
             # Wait for wallbox to process the change

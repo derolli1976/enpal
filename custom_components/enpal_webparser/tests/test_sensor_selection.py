@@ -154,7 +154,14 @@ class TestCumulativeEnergySensorSelection:
             assert "No suitable DC power sensor found" in warning_msg
     
     def test_energy_calculation_with_selected_sensor(self, mock_hass, mock_coordinator):
-        """Test that energy calculation works with auto-selected sensor."""
+        """Test that energy calculation works with auto-selected sensor.
+        
+        Uses controlled timestamps to verify the integration:
+        - First update at t=0: uses fallback interval (3600s = 1h)
+        - Second update at t=3600s: uses real elapsed time (1h)
+        """
+        from datetime import datetime, timedelta
+
         mock_coordinator.data = [
             {"name": "Inverter: Power DC Total (Huawei)", "value": "5000", "timestamp": "01/01/2024 12:00:00"},
         ]
@@ -164,18 +171,26 @@ class TestCumulativeEnergySensorSelection:
         )
         sensor._value = 0.0
         
-        # First update - selects sensor and calculates
-        sensor._handle_coordinator_update()
+        # First update at t=0 — no previous timestamp, uses fallback interval (1h)
+        t0 = datetime(2024, 1, 1, 12, 0, 0)
+        with patch("custom_components.enpal_webparser.sensor.datetime") as mock_dt:
+            mock_dt.now.return_value = t0
+            mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
+            sensor._handle_coordinator_update()
         
         # Should have calculated energy: 5000W * 1h / 1000 = 5 kWh
         assert sensor._active_source_uid == "inverter_power_dc_total_huawei"
         assert sensor._value == pytest.approx(5.0, rel=0.01)
         
-        # Second update with different power
+        # Second update 1 hour later with different power
         mock_coordinator.data = [
             {"name": "Inverter: Power DC Total (Huawei)", "value": "3000", "timestamp": "01/01/2024 13:00:00"},
         ]
-        sensor._handle_coordinator_update()
+        t1 = t0 + timedelta(hours=1)
+        with patch("custom_components.enpal_webparser.sensor.datetime") as mock_dt:
+            mock_dt.now.return_value = t1
+            mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
+            sensor._handle_coordinator_update()
         
         # Should add: 5 + 3 = 8 kWh
         assert sensor._value == pytest.approx(8.0, rel=0.01)
@@ -318,6 +333,119 @@ class TestCumulativeEnergySensorSelection:
         assert make_id("Inverter: Power DC Total Calculated") == "inverter_power_dc_total_calculated"
         assert make_id("Inverter: Power DC Total") == "inverter_power_dc_total"
         assert make_id("Inverter: Power DC Total SMA") == "inverter_power_dc_total_sma"
+
+
+class TestCumulativeEnergySensorElapsedTime:
+    """Test that the energy calculation uses real elapsed time, not the configured interval.
+
+    In WebSocket mode, updates arrive more frequently (e.g. every 15s) than the
+    configured polling interval (e.g. 60s).  Using the configured interval would
+    over-count energy by a factor of (interval / real_elapsed).
+    """
+
+    def test_first_update_uses_fallback_interval(self, mock_hass, mock_coordinator):
+        """On the very first update, use the configured interval as fallback."""
+        mock_coordinator.data = [
+            {"name": "Inverter: Power DC Total (Huawei)", "value": "6000", "timestamp": "01/01/2024 12:00:00"},
+        ]
+        sensor = create_sensor_with_mocked_state(
+            mock_hass, mock_coordinator, ["Inverter: Power DC Total (Huawei)"], interval=60
+        )
+        sensor._value = 0.0
+
+        sensor._handle_coordinator_update()
+
+        # 6000 W * (60s / 3600) / 1000 = 0.1 kWh
+        assert sensor._value == pytest.approx(0.1, abs=1e-6)
+
+    def test_elapsed_time_used_for_subsequent_updates(self, mock_hass, mock_coordinator):
+        """After the first update, real elapsed time must be used."""
+        from datetime import datetime, timedelta
+
+        mock_coordinator.data = [
+            {"name": "Inverter: Power DC Total (Huawei)", "value": "6000", "timestamp": "01/01/2024 12:00:00"},
+        ]
+        sensor = create_sensor_with_mocked_state(
+            mock_hass, mock_coordinator, ["Inverter: Power DC Total (Huawei)"], interval=60
+        )
+        sensor._value = 0.0
+
+        # Simulate first update at a known time
+        t0 = datetime(2024, 6, 1, 12, 0, 0)
+        sensor._last_update_time = t0
+        sensor._active_source_uid = "inverter_power_dc_total_huawei"
+
+        # Simulate second update 15 seconds later (WebSocket push)
+        t1 = t0 + timedelta(seconds=15)
+        with patch("custom_components.enpal_webparser.sensor.datetime") as mock_dt:
+            mock_dt.now.return_value = t1
+            mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
+            sensor._handle_coordinator_update()
+
+        # 6000 W * (15s / 3600) / 1000 = 0.025 kWh
+        assert sensor._value == pytest.approx(0.025, abs=1e-6)
+
+    def test_rapid_updates_do_not_overcount(self, mock_hass, mock_coordinator):
+        """Simulate 4 rapid updates at 15s intervals — total must match 1 minute of production."""
+        from datetime import datetime, timedelta
+
+        mock_coordinator.data = [
+            {"name": "Inverter: Power DC Total (Huawei)", "value": "3600", "timestamp": "01/01/2024 12:00:00"},
+        ]
+        sensor = create_sensor_with_mocked_state(
+            mock_hass, mock_coordinator, ["Inverter: Power DC Total (Huawei)"], interval=60
+        )
+        sensor._value = 0.0
+        sensor._active_source_uid = "inverter_power_dc_total_huawei"
+
+        base_time = datetime(2024, 6, 1, 12, 0, 0)
+        sensor._last_update_time = base_time
+
+        # 4 updates, each 15 seconds apart — totalling 60 seconds
+        for i in range(1, 5):
+            t = base_time + timedelta(seconds=15 * i)
+            with patch("custom_components.enpal_webparser.sensor.datetime") as mock_dt:
+                mock_dt.now.return_value = t
+                mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
+                sensor._handle_coordinator_update()
+
+        # 3600 W * (60s total / 3600) / 1000 = 0.06 kWh
+        # This is the same result as a single 60s poll — no overcounting.
+        assert sensor._value == pytest.approx(0.06, abs=1e-6)
+
+    def test_old_interval_would_overcount(self, mock_hass, mock_coordinator):
+        """Demonstrate that using the fixed interval in the same scenario would overcount.
+
+        With 4 updates at 15s intervals but interval=60s the old code would have
+        calculated 4 * (3600 * 60/3600 / 1000) = 4 * 0.06 = 0.24 kWh instead of
+        the correct 0.06 kWh — a 4× overcounting.
+
+        This test verifies the fix by asserting the correct value (0.06 kWh).
+        """
+        from datetime import datetime, timedelta
+
+        mock_coordinator.data = [
+            {"name": "Inverter: Power DC Total (Huawei)", "value": "3600", "timestamp": "01/01/2024 12:00:00"},
+        ]
+        sensor = create_sensor_with_mocked_state(
+            mock_hass, mock_coordinator, ["Inverter: Power DC Total (Huawei)"], interval=60
+        )
+        sensor._value = 0.0
+        sensor._active_source_uid = "inverter_power_dc_total_huawei"
+
+        base_time = datetime(2024, 6, 1, 12, 0, 0)
+        sensor._last_update_time = base_time
+
+        for i in range(1, 5):
+            t = base_time + timedelta(seconds=15 * i)
+            with patch("custom_components.enpal_webparser.sensor.datetime") as mock_dt:
+                mock_dt.now.return_value = t
+                mock_dt.side_effect = lambda *a, **kw: datetime(*a, **kw)
+                sensor._handle_coordinator_update()
+
+        # Must NOT be 0.24 (the old bug) — must be 0.06
+        assert sensor._value != pytest.approx(0.24, abs=0.01)
+        assert sensor._value == pytest.approx(0.06, abs=1e-6)
         
         # Verify sensor uses same transformation
         mock_coordinator.data = [

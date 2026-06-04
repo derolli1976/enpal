@@ -4,3 +4,4 @@ voluptuous
 requests
 pytest-asyncio>=0.21
 psutil
+msgpack>=1.0.7
