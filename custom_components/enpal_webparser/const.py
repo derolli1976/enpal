@@ -25,6 +25,11 @@ DEFAULT_URL = "http://192.168.1.1/deviceMessages"  # Placeholder - use discovery
 DEFAULT_INTERVAL = 60
 DEFAULT_TIMEOUT = 30
 
+# --- Firmware ---
+# Minimum Enpal firmware (major, minor) required for WebSocket mode and native
+# wallbox control (Solar Rel. 8.50). Older firmware only supports HTML polling.
+WEBSOCKET_MIN_FIRMWARE = (8, 50)
+
 DEFAULT_GROUPS = [
     "Wallbox",
     "Battery",

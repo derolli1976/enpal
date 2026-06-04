@@ -24,7 +24,7 @@
       },
       "configure": {
         "title": "Enpal Integration konfigurieren",
-        "description": "Einstellungen für Gerät konfigurieren: {url}",
+        "description": "Einstellungen für Gerät konfigurieren: {url}\n\n{firmware_warning}",
         "data": {
           "interval": "Abfrageintervall (in Sekunden) - Weniger als 60 Sekunden wird nicht empfohlen!",
           "timeout": "HTTP-Timeout (in Sekunden, 10-120) - Erhöhen, wenn Sensoren häufig als nicht verfügbar angezeigt werden",
@@ -47,7 +47,7 @@
     "step": {
       "init": {
         "title": "Optionen anpassen",
-        "description": "Hier kannst du zusätzliche Einstellungen vornehmen",
+        "description": "Hier kannst du zusätzliche Einstellungen vornehmen\n\n{firmware_warning}",
         "data": {
           "url": "URL / IP-Adresse der Enpal Box",
           "interval": "Abfrageintervall (in Sekunden) - Weniger als 60 Sekunden wird nicht empfohlen!",
