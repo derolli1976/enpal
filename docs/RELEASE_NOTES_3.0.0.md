@@ -1,6 +1,8 @@
 # 3.0.0 - WebSocket-Echtzeitmodus, native Wallbox-Steuerung & Firmware 8.50
 
-Version 3.0.0 bringt einen Echtzeit-Modus über WebSocket, steuert die Wallbox ohne separates Add-on und reduziert die Last auf der Enpal Box durch inkrementelles RenderBatch-Parsing.
+Der Sprung von 2.3.1 auf 3.0.0 ist ein Meilenstein. Das erste Release der Integration kam vor rund einem Jahr heraus. Seitdem ist die Integration auf über 360 aktive Installationen gewachsen.
+
+Mit 3.0.0 wechselt die Integration von reinem HTML-Scraping zu einem echten Echtzeit-Modus über WebSocket, steuert die Wallbox ohne separates Add-on und reduziert die Last auf der Enpal Box durch inkrementelles RenderBatch-Parsing. Danke an alle, die die Integration nutzen, Fehler melden und Feedback geben.
 
 ---
 
