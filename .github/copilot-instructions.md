@@ -152,8 +152,8 @@ _LOGGER.info("[Enpal] Your message: %s", variable)  # Always prefix with [Enpal]
 6. **Test Isolation**: Tests don't use pytest parametrize - each test explicitly constructs scenarios for clarity
 
 ## Branch Context
-Current branch: issue-127 fix branch (manifest version `2.9.9b4`).
-Recent work: Firmware-8.50 adaptation (WebSocket/native wallbox mode, dynamic runtime sensor creation with `RestoreEntity`, incremental RenderBatch parsing). 2.9.9b4 adds the second wallbox status candidate (`wallbox_status_connector_1`) and an HA repair issue + fix flow (`repairs.py`) for unresolved wallbox status sources.
+Current branch: 3.0.0 release prep (manifest version `3.0.0`).
+Recent work: 3.0.0 promotes the 2.9.9 beta line to a stable release. Highlights consolidated from the betas: Firmware-8.50 adaptation (WebSocket/native wallbox mode, dynamic runtime sensor creation with `RestoreEntity`, incremental RenderBatch parsing), the second wallbox status candidate (`wallbox_status_connector_1`), and an HA repair issue + fix flow (`repairs.py`) for unresolved wallbox status sources. Release notes live in [docs/RELEASE_NOTES_3.0.0.md](../docs/RELEASE_NOTES_3.0.0.md).
 
 ## Documentation Writing Style (README, Release Notes, German user-facing docs)
 User-facing docs are written in German. Avoid AI-typical phrasing and "AI slop". Target style: short, concrete declarative sentences.
