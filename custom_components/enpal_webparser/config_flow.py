@@ -30,7 +30,12 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .discovery import discover_enpal_devices, quick_discover_enpal_devices
 from .wallbox_api import WallboxApiClient
-from .utils import make_id, parse_enpal_html_sensors
+from .utils import (
+    firmware_supports_websocket,
+    make_id,
+    parse_enpal_html_sensors,
+    parse_firmware_version,
+)
 from .const import (
     DEFAULT_GROUPS,
     DEFAULT_INTERVAL,
@@ -40,6 +45,7 @@ from .const import (
     DOMAIN,
     WALLBOX_MODE_SOURCE_CANDIDATES,
     WALLBOX_STATUS_SOURCE_CANDIDATES,
+    WEBSOCKET_MIN_FIRMWARE,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -140,6 +146,81 @@ def get_default_config(options: dict[str, Any] | None = None) -> dict[str, Any]:
         "wallbox_mode_source": src.get("wallbox_mode_source", "auto"),
         "wallbox_status_source": src.get("wallbox_status_source", "auto"),
     }
+
+
+async def get_firmware_version(hass, url: str) -> str | None:
+    """Fetch the deviceMessages page and extract the Enpal firmware version.
+
+    Returns the dotted version string (e.g. "8.46.4") or None if the box is
+    unreachable or the version could not be parsed.
+    """
+    try:
+        session = async_get_clientsession(hass)
+        async with session.get(url, timeout=30) as response:
+            if response.status != 200:
+                return None
+            html = await response.text()
+        version = parse_firmware_version(html)
+        _LOGGER.debug("[Enpal] Detected firmware version: %s", version)
+        return version
+    except Exception as e:
+        _LOGGER.debug("[Enpal] Could not fetch firmware version: %s", e)
+        return None
+
+
+def get_firmware_warning(hass, version: str | None) -> str:
+    """Build a localized warning when firmware is too old for WebSocket mode.
+
+    Returns an empty string when the firmware is new enough or could not be
+    determined, so the message can always be passed as a placeholder.
+    """
+    capable = firmware_supports_websocket(version, WEBSOCKET_MIN_FIRMWARE)
+    if capable is not False:
+        return ""
+
+    min_version = f"{WEBSOCKET_MIN_FIRMWARE[0]}.{WEBSOCKET_MIN_FIRMWARE[1]}"
+    language = hass.config.language or "en"
+    if language == "de":
+        return (
+            f"⚠️ Achtung: Die erkannte Firmware deiner Enpal Box ist {version}. "
+            f"Der WebSocket-Modus benötigt Firmware {min_version} oder neuer. "
+            "Aktiviere den WebSocket-Modus nur, wenn deine Box mindestens diese "
+            "Firmware hat, sonst funktioniert er wahrscheinlich nicht. "
+            "Nutze in diesem Fall den HTML-Modus."
+        )
+    return (
+        f"⚠️ Warning: The detected firmware of your Enpal box is {version}. "
+        f"WebSocket mode requires firmware {min_version} or newer. "
+        "Only enable WebSocket mode if your box has at least this firmware, "
+        "otherwise it will likely not work. Use HTML mode instead."
+    )
+
+
+def get_wallbox_addon_warning(hass, config: dict[str, Any]) -> str:
+    """Build a localized hint to disable the legacy wallbox add-on.
+
+    Shown when WebSocket mode is active together with wallbox control, because
+    in that case the integration controls the wallbox natively and the legacy
+    add-on ("App") would send duplicate commands. Returns an empty string when
+    the hint is not relevant.
+    """
+    if not config.get("use_wallbox"):
+        return ""
+    if config.get("data_source") != "websocket":
+        return ""
+
+    language = hass.config.language or "en"
+    if language == "de":
+        return (
+            "ℹ️ Hinweis: Du nutzt den WebSocket-Modus mit aktiver Wallbox-Steuerung. "
+            "Die Wallbox wird dann direkt gesteuert. Deaktiviere das alte Wallbox "
+            "Add-on (die \"App\"), damit keine doppelten Befehle gesendet werden."
+        )
+    return (
+        "ℹ️ Note: You are using WebSocket mode with wallbox control enabled. "
+        "The wallbox is controlled natively in this mode. Disable the legacy "
+        "wallbox add-on (the \"App\") to avoid sending duplicate commands."
+    )
 
 
 async def get_wallbox_source_options(hass, url: str) -> dict[str, str]:
@@ -424,7 +505,12 @@ class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             "use_wallbox": DEFAULT_USE_WALLBOX,
             "data_source": "auto",
         }
-        
+
+        # Detect firmware to warn the user before they enable WebSocket mode
+        # on a box that is too old (< 8.50).
+        firmware_version = await get_firmware_version(self.hass, config["url"])
+        firmware_warning = get_firmware_warning(self.hass, firmware_version)
+
         if user_input is not None and "interval" in user_input:
             # Final step - validate and create entry
             errors: dict[str, str] = {}
@@ -484,6 +570,7 @@ class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors=errors,
                 description_placeholders={
                     "url": self._url,
+                    "firmware_warning": firmware_warning,
                 },
             )
         
@@ -502,6 +589,7 @@ class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             }),
             description_placeholders={
                 "url": self._url,
+                "firmware_warning": firmware_warning,
             },
         )
 
@@ -532,8 +620,19 @@ class EnpalOptionsFlowHandler(config_entries.OptionsFlow):
         if config.get("use_wallbox"):
             wallbox_sources = await get_wallbox_source_options(self.hass, config["url"])
 
+        # Detect firmware to warn before enabling WebSocket mode on old boxes.
+        firmware_version = await get_firmware_version(self.hass, config["url"])
+        firmware_warning = get_firmware_warning(self.hass, firmware_version)
+
+        # Hint to disable the legacy wallbox add-on in WebSocket + wallbox mode.
+        wallbox_addon_warning = get_wallbox_addon_warning(self.hass, config)
+
         return self.async_show_form(
             step_id="init",
             data_schema=get_form_schema(config, wallbox_sources),
             errors=errors,
+            description_placeholders={
+                "firmware_warning": firmware_warning,
+                "wallbox_addon_warning": wallbox_addon_warning,
+            },
         )

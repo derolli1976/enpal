@@ -126,6 +126,47 @@ def make_id(name: str) -> str:
     return name.strip("_")
 
 
+# Matches the firmware string in the deviceMessages page sidebar, e.g.
+# "Solar Rel. 8.46.4-355926 (21.05.2025)" -> "8.46.4"
+FIRMWARE_VERSION_RE = re.compile(
+    r"Solar\s+Rel\.\s*([0-9]+(?:\.[0-9]+)*)",
+    re.IGNORECASE,
+)
+
+
+def parse_firmware_version(html: Optional[str]) -> Optional[str]:
+    """Extract the Enpal firmware version from the deviceMessages HTML.
+
+    Returns the dotted version string (e.g. "8.46.4") or None if not found.
+    """
+    if not html:
+        return None
+    match = FIRMWARE_VERSION_RE.search(html)
+    if not match:
+        return None
+    return match.group(1)
+
+
+def firmware_supports_websocket(
+    version: Optional[str],
+    min_version: Tuple[int, int] = (8, 50),
+) -> Optional[bool]:
+    """Check whether a firmware version supports WebSocket mode.
+
+    Compares the (major, minor) part of ``version`` against ``min_version``.
+    Returns True/False, or None if the version could not be parsed.
+    """
+    if not version:
+        return None
+    parts = version.split(".")
+    try:
+        major = int(parts[0])
+        minor = int(parts[1]) if len(parts) > 1 else 0
+    except (ValueError, IndexError):
+        return None
+    return (major, minor) >= min_version
+
+
 def is_strict_number(s: str) -> bool:
     s2 = s.strip().replace(',', '.')
     return bool(re.fullmatch(r'[-+]?\d+(\.\d+)?', s2))

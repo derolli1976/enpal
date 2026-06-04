@@ -24,7 +24,7 @@
       },
       "configure": {
         "title": "Configure Enpal Integration",
-        "description": "Configure settings for device at: {url}",
+        "description": "Configure settings for device at: {url}\n\n{firmware_warning}",
         "data": {
           "interval": "Polling interval (in seconds) - Intervals below 60 seconds are not recommended!",
           "timeout": "HTTP timeout (in seconds, 10-120) - Increase if sensors frequently become unavailable",
@@ -47,7 +47,7 @@
     "step": {
       "init": {
         "title": "Adjust Options",
-        "description": "Here you can configure additional settings",
+        "description": "Here you can configure additional settings\n\n{firmware_warning}\n\n{wallbox_addon_warning}",
         "data": {
           "url": "URL / IP address of the Enpal Box",
           "interval": "Polling interval (in seconds) - Intervals below 60 seconds are not recommended!",
