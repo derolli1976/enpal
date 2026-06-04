@@ -47,7 +47,7 @@
     "step": {
       "init": {
         "title": "Adjust Options",
-        "description": "Here you can configure additional settings\n\n{firmware_warning}",
+        "description": "Here you can configure additional settings\n\n{firmware_warning}\n\n{wallbox_addon_warning}",
         "data": {
           "url": "URL / IP address of the Enpal Box",
           "interval": "Polling interval (in seconds) - Intervals below 60 seconds are not recommended!",

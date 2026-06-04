@@ -196,6 +196,33 @@ def get_firmware_warning(hass, version: str | None) -> str:
     )
 
 
+def get_wallbox_addon_warning(hass, config: dict[str, Any]) -> str:
+    """Build a localized hint to disable the legacy wallbox add-on.
+
+    Shown when WebSocket mode is active together with wallbox control, because
+    in that case the integration controls the wallbox natively and the legacy
+    add-on ("App") would send duplicate commands. Returns an empty string when
+    the hint is not relevant.
+    """
+    if not config.get("use_wallbox"):
+        return ""
+    if config.get("data_source") != "websocket":
+        return ""
+
+    language = hass.config.language or "en"
+    if language == "de":
+        return (
+            "ℹ️ Hinweis: Du nutzt den WebSocket-Modus mit aktiver Wallbox-Steuerung. "
+            "Die Wallbox wird dann direkt gesteuert. Deaktiviere das alte Wallbox "
+            "Add-on (die \"App\"), damit keine doppelten Befehle gesendet werden."
+        )
+    return (
+        "ℹ️ Note: You are using WebSocket mode with wallbox control enabled. "
+        "The wallbox is controlled natively in this mode. Disable the legacy "
+        "wallbox add-on (the \"App\") to avoid sending duplicate commands."
+    )
+
+
 async def get_wallbox_source_options(hass, url: str) -> dict[str, str]:
     """Fetch the live Wallbox-group sensors and build selector options.
 
@@ -597,11 +624,15 @@ class EnpalOptionsFlowHandler(config_entries.OptionsFlow):
         firmware_version = await get_firmware_version(self.hass, config["url"])
         firmware_warning = get_firmware_warning(self.hass, firmware_version)
 
+        # Hint to disable the legacy wallbox add-on in WebSocket + wallbox mode.
+        wallbox_addon_warning = get_wallbox_addon_warning(self.hass, config)
+
         return self.async_show_form(
             step_id="init",
             data_schema=get_form_schema(config, wallbox_sources),
             errors=errors,
             description_placeholders={
                 "firmware_warning": firmware_warning,
+                "wallbox_addon_warning": wallbox_addon_warning,
             },
         )

@@ -47,7 +47,7 @@
     "step": {
       "init": {
         "title": "Optionen anpassen",
-        "description": "Hier kannst du zusätzliche Einstellungen vornehmen\n\n{firmware_warning}",
+        "description": "Hier kannst du zusätzliche Einstellungen vornehmen\n\n{firmware_warning}\n\n{wallbox_addon_warning}",
         "data": {
           "url": "URL / IP-Adresse der Enpal Box",
           "interval": "Abfrageintervall (in Sekunden) - Weniger als 60 Sekunden wird nicht empfohlen!",
