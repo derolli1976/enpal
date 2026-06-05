@@ -181,3 +181,69 @@ def test_apply_diff_skips_unknown_key():
          "timestamp": "2026-06-02 15:06:50.331Z"},
     ])
     assert [dict(s) for s in baseline] == before
+
+
+def test_apply_diff_rejects_timestamp_as_value_for_numeric_sensor():
+    """Regression for issue #133.
+
+    When a RenderBatch row only changed the timestamp, the unchanged value
+    string can be missing from the diff, so the row parser may pick up the
+    timestamp as the value.  Such a non-numeric value must never overwrite a
+    numeric energy counter, otherwise Home Assistant drops it to "unavailable".
+    """
+    baseline = _load_baseline()
+    client = EnpalWebSocketClient("http://box.local", groups=list(DEFAULT_GROUPS))
+    client._set_baseline(baseline)
+
+    sensor = _find(baseline, "Energy.Consumption.Total.Lifetime")
+    assert sensor is not None
+    assert sensor["device_class"] == "energy"
+    good_value = sensor["value"]
+
+    client._apply_diff([
+        {"key": "Energy.Consumption.Total.Lifetime",
+         "value": "2026-06-02 15:05:10.244Z", "unit": None,
+         "timestamp": "2026-06-02 15:05:10.244Z"},
+    ])
+
+    # The last good numeric value must be retained.
+    assert sensor["value"] == good_value
+
+
+def test_apply_diff_still_patches_numeric_sensor_with_numeric_value():
+    baseline = _load_baseline()
+    client = EnpalWebSocketClient("http://box.local", groups=list(DEFAULT_GROUPS))
+    client._set_baseline(baseline)
+
+    sensor = _find(baseline, "Energy.Consumption.Total.Lifetime")
+    assert sensor is not None
+
+    client._apply_diff([
+        {"key": "Energy.Consumption.Total.Lifetime",
+         "value": "16360.30", "unit": "kWh",
+         "timestamp": "2026-06-02 15:05:10.244Z"},
+    ])
+
+    assert sensor["value"] == "16360.30"
+    assert sensor["unit"] == "kWh"
+
+
+def test_apply_diff_allows_nonnumeric_value_for_string_sensor():
+    """Non-numeric sensors (serials, states, device types) must still patch."""
+    baseline = _load_baseline()
+    client = EnpalWebSocketClient("http://box.local", groups=list(DEFAULT_GROUPS))
+    client._set_baseline(baseline)
+
+    sensor = _find(baseline, "HW.Cronny.Result")
+    assert sensor is not None
+    assert sensor.get("device_class") not in {
+        "energy", "power", "voltage", "current", "temperature",
+        "frequency", "battery", "humidity", "pressure",
+    }
+
+    client._apply_diff([
+        {"key": "HW.Cronny.Result", "value": "cronny.hw_metrics.fail", "unit": None,
+         "timestamp": "2026-06-02 15:05:10.244Z"},
+    ])
+
+    assert sensor["value"] == "cronny.hw_metrics.fail"
