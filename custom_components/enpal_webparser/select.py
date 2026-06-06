@@ -95,7 +95,11 @@ class EnpalWallboxModeSelect(SelectEntity):
     async def async_update(self):
         mode_entity = self._hass.states.get("sensor.wallbox_lademodus")
         if not mode_entity or mode_entity.state in ("unavailable", "unknown", None):
-            _LOGGER.warning("sensor.wallbox_lademodus not found or unavailable")
+            # Expected during startup: the select platform is set up before the
+            # sensor platform has created sensor.wallbox_lademodus (the WebSocket
+            # connection can take several seconds).  The state-change listener
+            # re-runs this update once the sensor appears, so this is transient.
+            _LOGGER.debug("sensor.wallbox_lademodus not found or unavailable yet")
             self._current_option = None
             return
 

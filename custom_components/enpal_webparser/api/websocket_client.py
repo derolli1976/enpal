@@ -40,6 +40,15 @@ _LOGGER = logging.getLogger(__name__)
 # entity states, so we still debounce slightly.
 _PUSH_DEBOUNCE_SECONDS = 2
 
+# Device classes whose sensor state must be numeric. The fast path refuses to
+# write a non-numeric value into these, so a misread RenderBatch row (e.g. a
+# timestamp-only update where the value string is absent) cannot turn an energy
+# counter "unavailable".
+_NUMERIC_DEVICE_CLASSES = frozenset({
+    "energy", "power", "voltage", "current", "temperature",
+    "frequency", "battery", "humidity", "pressure",
+})
+
 
 class EnpalWebSocketClient(EnpalApiClient):
     """WebSocket client for the /deviceMessages Blazor page.
@@ -415,7 +424,12 @@ class EnpalWebSocketClient(EnpalApiClient):
 
     def _apply_diff(self, rows: List[Dict]) -> None:
         """Patch baseline sensors in place from extracted RenderBatch rows."""
-        from ..utils import make_id, get_class_and_unit, normalize_value_and_unit
+        from ..utils import (
+            make_id,
+            get_class_and_unit,
+            normalize_value_and_unit,
+            is_strict_number,
+        )
         from ..const import UNIT_DEVICE_CLASS_MAP, DEFAULT_UNITS
 
         patched = 0
@@ -436,6 +450,18 @@ class EnpalWebSocketClient(EnpalApiClient):
             value_clean, unit = normalize_value_and_unit(
                 combined, unit, device_class, DEFAULT_UNITS
             )
+
+            # Guard against RenderBatch rows that only carried a timestamp
+            # change: the unchanged value string is then absent from the diff,
+            # so the row parser can pick up the timestamp as the value. Writing
+            # such a non-numeric string into a numeric sensor (e.g. the lifetime
+            # energy counter) makes Home Assistant drop the entity to
+            # "unavailable". When the target sensor is numeric, only accept a
+            # numeric value on the fast path and leave anything else to the
+            # periodic full scrape.
+            if self._is_numeric_sensor(sensor) and not is_strict_number(value_clean):
+                continue
+
             sensor["value"] = value_clean
             if unit:
                 sensor["unit"] = unit
@@ -445,6 +471,16 @@ class EnpalWebSocketClient(EnpalApiClient):
 
         if patched:
             _LOGGER.debug("[Enpal WebSocket] Incrementally patched %d sensor(s)", patched)
+
+    @staticmethod
+    def _is_numeric_sensor(sensor: Dict) -> bool:
+        """Whether a baseline sensor is expected to hold a numeric state."""
+        from ..utils import is_strict_number
+
+        if sensor.get("device_class") in _NUMERIC_DEVICE_CLASSES:
+            return True
+        value = sensor.get("value")
+        return isinstance(value, str) and is_strict_number(value)
 
     # ------------------------------------------------------------------
     # Blazor protocol messages
