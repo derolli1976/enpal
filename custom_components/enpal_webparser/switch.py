@@ -94,7 +94,11 @@ class EnpalWallboxSwitch(SwitchEntity):
     async def async_update(self):
         status_entity = self._hass.states.get("sensor.wallbox_status")
         if not status_entity or status_entity.state in ("unavailable", "unknown", None):
-            _LOGGER.warning("sensor.wallbox_status not found or unavailable")
+            # Expected during startup: the switch platform is set up before the
+            # sensor platform has created sensor.wallbox_status (the WebSocket
+            # connection can take several seconds).  The state-change listener
+            # re-runs this update once the sensor appears, so this is transient.
+            _LOGGER.debug("sensor.wallbox_status not found or unavailable yet")
             self._is_on = False  
             return
 

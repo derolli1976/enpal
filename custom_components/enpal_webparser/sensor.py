@@ -178,12 +178,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     # Register push callback for WebSocket client
     if data_source == "websocket" and isinstance(api_client, EnpalWebSocketClient):
         async def _on_push_data(result: dict) -> None:
-            """Handle push data from WebSocket - update coordinator immediately."""
+            """Apply WebSocket push data without resetting the poll timer.
+
+            ``coordinator.async_set_updated_data`` reschedules the coordinator's
+            interval refresh on every call.  WebSocket pushes arrive every few
+            seconds, so using it here would perpetually reset the timer and the
+            periodic full HTML scrape (``async_update_data`` → ``fetch_data``)
+            would never fire.  That full scrape is the safety net that refreshes
+            the baseline and corrects any value the incremental RenderBatch fast
+            path misses (timestamp-only rows, ambiguous or temporarily
+            disappearing keys).  Without it a sensor freezes at its startup
+            value while only ``enpal_last_update`` keeps advancing.
+
+            We therefore update the data and notify listeners directly and leave
+            the scheduled full scrape intact.
+            """
             nonlocal last_successful_data
             sensors = result.get('sensors', [])
             if sensors:
                 last_successful_data = sensors
-                coordinator.async_set_updated_data(sensors)
+                coordinator.data = sensors
+                coordinator.last_update_success = True
+                coordinator.async_update_listeners()
                 _LOGGER.debug(
                     "[Enpal] Push update: %d sensors received", len(sensors)
                 )
