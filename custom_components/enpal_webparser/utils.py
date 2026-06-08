@@ -206,7 +206,12 @@ def get_class_and_unit(
     value = value.strip()
     for unit, device_class in unit_device_class_map.items():
         if value.endswith(unit):
-            return unit, device_class
+            # Only treat the trailing characters as a unit if the part in front
+            # of it is actually numeric. Otherwise status strings like
+            # "SuspendedEV" (ends with "V") would be misread as a voltage value.
+            prefix = value[: len(value) - len(unit)].strip()
+            if prefix and is_strict_number(prefix):
+                return unit, device_class
     return None, None
 
 
