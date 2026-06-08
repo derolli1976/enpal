@@ -49,6 +49,12 @@ def test_get_class_and_unit():
     unit, device_class = get_class_and_unit("17 bananas", UNIT_DEVICE_CLASS_MAP)
     assert unit is None
     assert device_class is None
+    # Status strings that happen to end with a unit letter must NOT be detected
+    # as numeric sensors (e.g. "SuspendedEV" ends with "V" -> voltage).
+    for status in ("SuspendedEV", "Unknown", "Available", "Charging"):
+        unit, device_class = get_class_and_unit(status, UNIT_DEVICE_CLASS_MAP)
+        assert unit is None, status
+        assert device_class is None, status
 
 def test_normalize_value_and_unit():
     """Test that normalize_value_and_unit converts Wh to kWh, handles default units, and leaves correct values."""
