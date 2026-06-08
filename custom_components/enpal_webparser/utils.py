@@ -19,6 +19,7 @@
 import logging
 import re
 from datetime import datetime
+from functools import lru_cache
 from typing import Any, Dict, List, Optional, Tuple
 
 from bs4 import BeautifulSoup, Tag
@@ -119,8 +120,14 @@ def expand_inverter_system_state(group: str, raw_text: str, timestamp_iso: Optio
     return out
 
 
+@lru_cache(maxsize=4096)
 def make_id(name: str) -> str:
-    """Generate a Home Assistant-friendly unique id from a name."""
+    """Generate a Home Assistant-friendly unique id from a name.
+
+    Result is cached because this is called very frequently (for every sensor
+    on every coordinator update) and the set of input names is small and
+    bounded by the sensors the Enpal box exposes.
+    """
     name = name.lower()
     name = re.sub(r"[^\w]+", "_", name)
     return name.strip("_")
@@ -206,7 +213,12 @@ def get_class_and_unit(
     value = value.strip()
     for unit, device_class in unit_device_class_map.items():
         if value.endswith(unit):
-            return unit, device_class
+            # Only treat the trailing characters as a unit if the part in front
+            # of it is actually numeric. Otherwise status strings like
+            # "SuspendedEV" (ends with "V") would be misread as a voltage value.
+            prefix = value[: len(value) - len(unit)].strip()
+            if prefix and is_strict_number(prefix):
+                return unit, device_class
     return None, None
 
 

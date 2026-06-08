@@ -34,6 +34,8 @@ Details in den [Release Notes 3.0.0](docs/RELEASE_NOTES_3.0.0.md).
 
 > **Update 3.0.1:** Bugfix für den WebSocket-Modus. Sensoren, die direkt nach einem Neustart fehlten, froren ein oder blieben `unavailable`. Details in den [Release Notes 3.0.1](docs/RELEASE_NOTES_3.0.1.md).
 
+> **Update 3.0.2:** Geringere CPU-Last und ein Statussensor der Wallbox, der nicht mehr fehlerhaft als Spannungssensor behandelt wird. Details in den [Release Notes 3.0.2](docs/RELEASE_NOTES_3.0.2.md).
+
 > **Hinweis zur Firmware:** Der WebSocket-Modus, die native Wallbox-Steuerung und das RenderBatch-Parsing setzen die Enpal-Firmware **Solar Rel. 8.50.1-773465 (27.05.2026)** voraus. Auf älteren Firmware-Ständen läuft weiterhin der HTML-Polling-Modus (Legacy), ohne die neuen Echtzeit- und Wallbox-Funktionen.
 
 > **Hinweis zu fehlenden Sensoren:** Seit Firmware **8.50** stellt Enpal einige Sensoren nicht mehr bereit. Die Integration kann das nicht ändern. Betroffene Entitäten kannst du in Home Assistant gefahrlos löschen.
