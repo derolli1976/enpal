@@ -28,6 +28,7 @@ from .const import (
     DEFAULT_UNITS,
     DEVICE_CLASS_OVERRIDES,
     ENPAL_TIMESTAMP_FORMAT,
+    SENSOR_KEY_ALIASES,
     UNIT_DEVICE_CLASS_MAP,
 )
 
@@ -294,6 +295,18 @@ def extract_group_from_card(card: Tag) -> Optional[str]:
     return h2_tag.text.strip() if h2_tag else None
 
 
+def is_note_cell(cell: Tag) -> bool:
+    """Whether a table cell is a "Notes" placeholder instead of a sensor value.
+
+    Since firmware 8.51 the deviceMessages tables carry an extra "Notes" column.
+    Rows whose reading is missing or invalid do not render a value/timestamp at
+    all; instead a single note cell spans the remaining columns and contains
+    diagnostic text such as "missing: The value has been cleared.".
+    """
+    classes = cell.get("class") or []
+    return "pi-note-cell" in classes and cell.has_attr("colspan")
+
+
 def parse_card_rows(card: Tag, group: str, groups: List[str]) -> List[Dict[str, Any]]:
     """Extracts sensors from a group."""
     rows = card.find_all("tr")[1:]  # assume first row == header
@@ -307,7 +320,12 @@ def parse_card_rows(card: Tag, group: str, groups: List[str]) -> List[Dict[str, 
         if len(cols) < 2:
             continue
 
-        raw_name = cols[0].text.strip()
+        # No reading available for this sensor in this update - leave the
+        # entity on its last known value instead of pushing the note text.
+        if is_note_cell(cols[1]):
+            continue
+
+        raw_name = SENSOR_KEY_ALIASES.get(cols[0].text.strip(), cols[0].text.strip())
         value_raw = cols[1].text.strip()
         timestamp_str = cols[2].text.strip() if len(cols) > 2 else None
 

@@ -113,6 +113,22 @@ WALLBOX_STATUS_SOURCE_CANDIDATES = [
     "wallbox_status_connector_1",
 ]
 
+# --- Sensor key aliases (firmware 8.51) ---
+# Firmware 8.51 appended an ".Inverter" suffix to several data points in the
+# "Inverter" group. Mapping them back to the previous key keeps the existing
+# entity ids, history and automations intact instead of creating duplicates.
+SENSOR_KEY_ALIASES = {
+    "Energy.Battery.Charge.Day.Inverter": "Energy.Battery.Charge.Day",
+    "Energy.Battery.Discharge.Day.Inverter": "Energy.Battery.Discharge.Day",
+    "Mode.Forcible.Charge.Discharge.Inverter": "Mode.Forcible.Charge.Discharge",
+    "Power.AC.Phase.A.Inverter": "Power.AC.Phase.A",
+    "Power.AC.Phase.B.Inverter": "Power.AC.Phase.B",
+    "Power.AC.Phase.C.Inverter": "Power.AC.Phase.C",
+    "Power.Battery.Charge.Discharge.Inverter": "Power.Battery.Charge.Discharge",
+    "Power.Battery.Charge.Max.Inverter": "Power.Battery.Charge.Max",
+    "Power.Battery.Discharge.Max.Inverter": "Power.Battery.Discharge.Max",
+}
+
 # --- Date/Time Formats ---
 ENPAL_TIMESTAMP_FORMAT = "%m/%d/%Y %H:%M:%S"
 

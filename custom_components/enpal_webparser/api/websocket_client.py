@@ -430,14 +430,15 @@ class EnpalWebSocketClient(EnpalApiClient):
             normalize_value_and_unit,
             is_strict_number,
         )
-        from ..const import UNIT_DEVICE_CLASS_MAP, DEFAULT_UNITS
+        from ..const import UNIT_DEVICE_CLASS_MAP, DEFAULT_UNITS, SENSOR_KEY_ALIASES
 
         patched = 0
         for row in rows:
             value = row.get("value")
             if not is_patchable_value(value):
                 continue
-            indices = self._key_index.get(make_id(row["key"]))
+            key = SENSOR_KEY_ALIASES.get(row["key"], row["key"])
+            indices = self._key_index.get(make_id(key))
             # Skip unknown keys (new sensors) and ambiguous cross-group keys;
             # the periodic full scrape handles those correctly.
             if not indices or len(indices) != 1:
