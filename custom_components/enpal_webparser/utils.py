@@ -272,16 +272,38 @@ def parse_enpal_html_sensors(
     """parsing the html content and extracting sensor data."""
     soup = BeautifulSoup(html, 'html.parser')
     sensors: List[Dict[str, Any]] = []
+    parsed_cards: List[str] = []
+    skipped_cards: List[str] = []
 
     for card in soup.find_all("div", class_="card"):
         if not isinstance(card, Tag):
             continue
 
         group = extract_group_from_card(card)
-        if not group or group not in groups:
+        if not group:
+            continue
+        if group not in groups:
+            skipped_cards.append(group)
             continue
 
-        sensors.extend(parse_card_rows(card, group, groups))
+        card_sensors = parse_card_rows(card, group, groups)
+        parsed_cards.append(f"{group}={len(card_sensors)}")
+        sensors.extend(card_sensors)
+
+    if not sensors:
+        _LOGGER.warning(
+            "[Enpal] No sensors parsed from %d bytes of HTML. Cards read: %s. "
+            "Cards skipped because the group is not selected: %s",
+            len(html or ""),
+            ", ".join(parsed_cards) or "none",
+            ", ".join(skipped_cards) or "none",
+        )
+    else:
+        _LOGGER.debug(
+            "[Enpal] Parsed cards: %s. Skipped cards: %s",
+            ", ".join(parsed_cards) or "none",
+            ", ".join(skipped_cards) or "none",
+        )
 
     # Calculate missing current sensors from power and voltage (I = P / U)
     sensors = add_calculated_current_sensors(sensors)
@@ -311,6 +333,7 @@ def parse_card_rows(card: Tag, group: str, groups: List[str]) -> List[Dict[str, 
     """Extracts sensors from a group."""
     rows = card.find_all("tr")[1:]  # assume first row == header
     sensor_list: List[Dict[str, Any]] = []
+    notes_skipped = 0
 
     for row in rows:
         if not isinstance(row, Tag):
@@ -323,6 +346,7 @@ def parse_card_rows(card: Tag, group: str, groups: List[str]) -> List[Dict[str, 
         # No reading available for this sensor in this update - leave the
         # entity on its last known value instead of pushing the note text.
         if is_note_cell(cols[1]):
+            notes_skipped += 1
             continue
 
         raw_name = SENSOR_KEY_ALIASES.get(cols[0].text.strip(), cols[0].text.strip())
@@ -378,6 +402,12 @@ def parse_card_rows(card: Tag, group: str, groups: List[str]) -> List[Dict[str, 
             continue
 
         sensor_list.append(sensor)
+
+    if notes_skipped:
+        _LOGGER.debug(
+            "[Enpal] Group %s: %d of %d rows carry no reading and were skipped",
+            group, notes_skipped, len(rows),
+        )
 
     return sensor_list
 
