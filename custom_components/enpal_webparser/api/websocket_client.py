@@ -17,7 +17,8 @@ import asyncio
 import json
 import logging
 import time
-from typing import Optional, Dict, List, Callable, Awaitable
+from collections import deque
+from typing import Awaitable, Callable, Deque, Dict, List, Optional
 
 from .base import EnpalApiClient
 from .protocol import (
@@ -81,6 +82,8 @@ class EnpalWebSocketClient(EnpalApiClient):
         # Cached full sensor list + index for incremental RenderBatch patching
         self._baseline: Optional[List[Dict]] = None
         self._key_index: Dict[str, List[int]] = {}
+        self._circuit_started: float = 0  # monotonic time of the last StartCircuit
+        self._recent_targets: Deque[str] = deque(maxlen=10)
 
     # ------------------------------------------------------------------
     # Public API
@@ -150,6 +153,7 @@ class EnpalWebSocketClient(EnpalApiClient):
             self._read_task = asyncio.create_task(self._read_loop())
 
             # 7. Start Blazor circuit for /deviceMessages
+            self._circuit_started = time.monotonic()
             await self._send_start_circuit()
             await asyncio.sleep(0.3)
             await self._send_update_root_components()
@@ -319,25 +323,41 @@ class EnpalWebSocketClient(EnpalApiClient):
             if msg_type == 3:
                 # [3, headers, invocationId, resultKind, result]
                 result_kind = msg[3] if len(msg) > 3 else None
+                inv_id = msg[2] if len(msg) > 2 else None
+                result = msg[4] if len(msg) > 4 else None
                 if result_kind == 1:
-                    inv_id = msg[2] if len(msg) > 2 else None
-                    result = msg[4] if len(msg) > 4 else None
                     _LOGGER.error("[Enpal WebSocket] Server error for invocation %s: %s", inv_id, result)
+                else:
+                    _LOGGER.debug(
+                        "[Enpal WebSocket] Completion for invocation %s: kind=%s result=%r",
+                        inv_id, result_kind, result,
+                    )
                 continue
 
             # Type 7: Close — server is shutting down the connection
             if msg_type == 7:
                 error = msg[1] if len(msg) > 1 else None
-                _LOGGER.warning("[Enpal WebSocket] Server sent Close: %s", error)
+                _LOGGER.warning(
+                    "[Enpal WebSocket] Server sent Close: %s (%.1fs after StartCircuit, "
+                    "last targets seen: %s)",
+                    error,
+                    time.monotonic() - self._circuit_started,
+                    ", ".join(self._recent_targets) or "none",
+                )
                 self.connected = False
                 continue
 
             # Type 1: Invocation
             if msg_type != 1 or len(msg) < 4:
+                _LOGGER.debug("[Enpal WebSocket] Unhandled message type %s: %r", msg_type, msg[:4])
                 continue
 
             target = msg[3] if len(msg) > 3 else None
             args = msg[4] if len(msg) > 4 else []
+            self._recent_targets.append(str(target))
+            _LOGGER.debug(
+                "[Enpal WebSocket] Invocation %s with %d arg(s)", target, len(args) if args else 0
+            )
 
             if target == "JS.RenderBatch":
                 # Acknowledge the render so the server keeps sending
@@ -350,6 +370,11 @@ class EnpalWebSocketClient(EnpalApiClient):
             elif target == "JS.BeginInvokeJS":
                 # Always acknowledge JS calls to keep circuit alive
                 if len(args) >= 1:
+                    _LOGGER.debug(
+                        "[Enpal WebSocket] JS call %s(%s)",
+                        args[1] if len(args) > 1 else "?",
+                        str(args[2])[:200] if len(args) > 2 else "",
+                    )
                     await self._send_end_invoke_js(args[0])
 
     async def _on_render_batch(self, batch_bytes=None):

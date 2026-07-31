@@ -1,10 +1,10 @@
-# 3.0.3b2 - Firmware 8.51 (Beta)
+# 3.0.3b3 - Firmware 8.51 (Beta)
 
 Enpal hat mit **Solar Rel. 8.51** die Seite `/deviceMessages` umgebaut. Auf Boxen mit dieser Firmware zeigen viele Sensoren seitdem Fehlertexte statt Messwerten an. Diese Beta behebt das.
 
 Getestet wurde gegen zwei Seitenstände: `8.51.0-950631` und `8.51.0-955735`.
 
-Gegenüber 3.0.3b1 kommt nur zusätzliche Diagnose-Ausgabe im Protokoll dazu. Nach einer Rückmeldung stehen auf einer Box weiterhin fast alle Sensoren auf "nicht verfügbar". Um das einzugrenzen, protokolliert die Integration jetzt, welche Karten der Seite sie überhaupt zu sehen bekommt.
+Gegenüber 3.0.3b2 kommt nur zusätzliche Diagnose-Ausgabe für die WebSocket-Verbindung dazu. Auf einer Box stehen weiterhin fast alle Sensoren auf "nicht verfügbar". Die Ursache dafür ist inzwischen bekannt und weiter unten beschrieben. Sie lässt sich in dieser Beta noch nicht beheben.
 
 ---
 
@@ -56,13 +56,33 @@ Bei aktivierter Debug-Protokollierung schreibt die Integration jetzt pro Abruf m
 
 Wenn gar kein Sensor gelesen werden konnte, erscheint eine Warnung mit der Größe der Seite und den gefundenen Karten. Damit lässt sich unterscheiden, ob die Box nichts liefert oder ob die Auswertung scheitert.
 
+Neu in dieser Beta: die WebSocket-Verbindung protokolliert ihren kompletten Nachrichtenverkehr. Jede eingehende Anfrage der Box, jeder JavaScript-Aufruf und jede Antwort auf unsere Aufrufe werden mitgeschrieben. Beendet die Box die Verbindung, steht im Protokoll zusätzlich, wie lange die Verbindung bestand und welche Nachrichten zuletzt eingegangen sind.
+
+---
+
+## 🚧 Bekanntes Problem auf 8.51
+
+Auf mindestens einer Box stehen trotz dieser Korrekturen fast alle Sensoren auf "nicht verfügbar". Der Grund liegt tiefer als die Auswertung.
+
+Ruft man `/deviceMessages` direkt über HTTP ab, enthält die Antwort nur noch die Karte "Site Data" mit Werten. Alle Gerätekarten sind leer und tragen den Hinweis `No messages available for this device.` Die Zeilen entstehen erst, wenn die Box ihre Weboberfläche über eine offene Verbindung nachlädt. Im Browser sieht die Seite deshalb vollständig aus, beim Abruf durch die Integration nicht.
+
+Damit liefert der HTML-Modus auf diesen Boxen nur noch die vier Werte aus "Site Data". Der WebSocket-Modus könnte die Lücke schließen, aber die Box beendet die Verbindung kurz nach dem Aufbau wieder, bevor Daten ankommen.
+
+Ob eine Box betroffen ist, zeigt das Debug-Protokoll:
+
+```
+[Enpal] Parsed cards: Site Data=4, Battery=0, IoTEdgeDevice=0, PowerSensor=0, Wallbox=0, Inverter=0
+```
+
+Stehen dort überall Nullen außer bei "Site Data", greift das Problem. Ein Fix erfordert einen anderen Weg, die Daten von der Box zu holen. Daran wird gearbeitet.
+
 ---
 
 ## 🔍 Bekannte Einschränkung
 
 Der Batterie-Ladestand `Energy.Battery.Charge.Level` fehlt auf beiden getesteten 8.51-Seiten komplett. Die Gruppe "Battery" enthält nur noch die maximale AC-Leistung und die Seriennummern.
 
-Die Seite hat neue Schalter "Show unsupported values" und "Show internal values". Sie sind ab Werk nicht gesetzt, und ausgeblendete Zeilen stehen nicht im Quelltext. Ob der Ladestand dahinter liegt oder wirklich entfallen ist, lässt sich ohne eine Rückmeldung aus der Praxis nicht sagen. Wenn du 8.51 hast: setze in der Gruppe "Battery" beide Haken, speichere die Seite und hänge sie an Issue #148 an.
+Die Seite hat neue Schalter "Show unsupported values" und "Show internal values". Sie sind ab Werk nicht gesetzt, und ausgeblendete Zeilen stehen nicht im Quelltext. Ob der Ladestand dahinter liegt oder wirklich entfallen ist, lässt sich erst klären, wenn die Datenanbindung auf 8.51 wieder läuft.
 
 ---
 
@@ -71,7 +91,7 @@ Die Seite hat neue Schalter "Show unsupported values" und "Show internal values"
 1. In HACS → **Enpal Solar** öffnen
 2. Auf die **drei Punkte** (⋮) klicken → **Version auswählen**
 3. **Beta-Versionen einblenden** aktivieren
-4. Version **3.0.3b2** auswählen und installieren
+4. Version **3.0.3b3** auswählen und installieren
 5. Home Assistant **neu starten**
 
 Bestehende Einstellungen bleiben erhalten. Ein Neuaufsetzen der Integration ist nicht nötig.
