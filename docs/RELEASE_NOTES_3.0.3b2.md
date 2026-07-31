@@ -1,8 +1,10 @@
-# 3.0.3b1 - Firmware 8.51 (Beta)
+# 3.0.3b2 - Firmware 8.51 (Beta)
 
 Enpal hat mit **Solar Rel. 8.51** die Seite `/deviceMessages` umgebaut. Auf Boxen mit dieser Firmware zeigen viele Sensoren seitdem Fehlertexte statt Messwerten an. Diese Beta behebt das.
 
 Getestet wurde gegen zwei Seitenstände: `8.51.0-950631` und `8.51.0-955735`.
+
+Gegenüber 3.0.3b1 kommt nur zusätzliche Diagnose-Ausgabe im Protokoll dazu. Nach einer Rückmeldung stehen auf einer Box weiterhin fast alle Sensoren auf "nicht verfügbar". Um das einzugrenzen, protokolliert die Integration jetzt, welche Karten der Seite sie überhaupt zu sehen bekommt.
 
 ---
 
@@ -48,6 +50,14 @@ Die Zuordnung gilt für beide Datenquellen, also auch für die WebSocket-Updates
 
 ---
 
+## 🔎 Neue Diagnose-Ausgabe
+
+Bei aktivierter Debug-Protokollierung schreibt die Integration jetzt pro Abruf mit, welche Karten der Seite gelesen wurden und wie viele Sensoren jede davon geliefert hat. Karten, deren Gruppe in den Einstellungen nicht ausgewählt ist, werden getrennt aufgeführt. Zeilen ohne Messwert werden pro Gruppe gezählt.
+
+Wenn gar kein Sensor gelesen werden konnte, erscheint eine Warnung mit der Größe der Seite und den gefundenen Karten. Damit lässt sich unterscheiden, ob die Box nichts liefert oder ob die Auswertung scheitert.
+
+---
+
 ## 🔍 Bekannte Einschränkung
 
 Der Batterie-Ladestand `Energy.Battery.Charge.Level` fehlt auf beiden getesteten 8.51-Seiten komplett. Die Gruppe "Battery" enthält nur noch die maximale AC-Leistung und die Seriennummern.
@@ -61,7 +71,7 @@ Die Seite hat neue Schalter "Show unsupported values" und "Show internal values"
 1. In HACS → **Enpal Solar** öffnen
 2. Auf die **drei Punkte** (⋮) klicken → **Version auswählen**
 3. **Beta-Versionen einblenden** aktivieren
-4. Version **3.0.3b1** auswählen und installieren
+4. Version **3.0.3b2** auswählen und installieren
 5. Home Assistant **neu starten**
 
 Bestehende Einstellungen bleiben erhalten. Ein Neuaufsetzen der Integration ist nicht nötig.
