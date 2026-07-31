@@ -1,0 +1,73 @@
+# 3.0.3b1 - Firmware 8.51 (Beta)
+
+Enpal hat mit **Solar Rel. 8.51** die Seite `/deviceMessages` umgebaut. Auf Boxen mit dieser Firmware zeigen viele Sensoren seitdem Fehlertexte statt Messwerten an. Diese Beta behebt das.
+
+Getestet wurde gegen zwei Seitenstände: `8.51.0-950631` und `8.51.0-955735`.
+
+---
+
+## ⚠️ Beta-Version
+
+> Diese Version ist zum Testen gedacht.
+>
+> - 💾 Vor der Installation ein Home Assistant-Backup anlegen.
+> - 🔄 Bei Problemen kannst du über HACS jederzeit auf 3.0.2 zurückwechseln.
+> - 🐛 Auffälligkeiten bitte in [Issue #148](https://github.com/derolli1976/enpal/issues/148) melden.
+
+---
+
+## 🐛 Behobene Fehler
+
+### Sensoren zeigen Fehlertexte statt Werte
+
+Firmware 8.51 hat den Tabellen eine Spalte "Notes" hinzugefügt. Zeilen ohne gültigen Messwert enthalten keine Wert- und Zeitstempelspalte mehr. Stattdessen steht dort eine Notiz über die restliche Zeilenbreite, zum Beispiel `missing: The value has been cleared.`
+
+Der Parser hat diese Notiz als Messwert gelesen. Betroffene Sensoren standen danach auf Texten wie `missing: Device provided value ProcessImageValueKey { KeyString = Power.Reactive } has not been set`. Bei einem Nutzer waren 65 von 135 Sensoren betroffen.
+
+Zeilen ohne Messwert werden jetzt übersprungen. Der Sensor behält seinen letzten bekannten Wert, bis die Box wieder einen Wert liefert.
+
+### Neue Entitäten nach dem Firmware-Update
+
+Firmware 8.51 hat neun Datenpunkte in der Gruppe "Inverter" um das Suffix `.Inverter` erweitert. Home Assistant hätte daraus neue Entitäten mit neuen IDs erzeugt. Automatisierungen und Verlaufsdaten wären ins Leere gelaufen.
+
+Diese Schlüssel werden jetzt auf ihre bisherigen Namen zurückgeführt:
+
+| Firmware 8.51 | Entity-ID bleibt |
+| --- | --- |
+| `Power.AC.Phase.A.Inverter` | `sensor.inverter_power_ac_phase_a` |
+| `Power.AC.Phase.B.Inverter` | `sensor.inverter_power_ac_phase_b` |
+| `Power.AC.Phase.C.Inverter` | `sensor.inverter_power_ac_phase_c` |
+| `Power.Battery.Charge.Discharge.Inverter` | `sensor.inverter_power_battery_charge_discharge` |
+| `Power.Battery.Charge.Max.Inverter` | `sensor.inverter_power_battery_charge_max` |
+| `Power.Battery.Discharge.Max.Inverter` | `sensor.inverter_power_battery_discharge_max` |
+| `Energy.Battery.Charge.Day.Inverter` | `sensor.inverter_energy_battery_charge_day` |
+| `Energy.Battery.Discharge.Day.Inverter` | `sensor.inverter_energy_battery_discharge_day` |
+| `Mode.Forcible.Charge.Discharge.Inverter` | `sensor.inverter_mode_forcible_charge_discharge` |
+
+Die Zuordnung gilt für beide Datenquellen, also auch für die WebSocket-Updates.
+
+---
+
+## 🔍 Bekannte Einschränkung
+
+Der Batterie-Ladestand `Energy.Battery.Charge.Level` fehlt auf beiden getesteten 8.51-Seiten komplett. Die Gruppe "Battery" enthält nur noch die maximale AC-Leistung und die Seriennummern.
+
+Die Seite hat neue Schalter "Show unsupported values" und "Show internal values". Sie sind ab Werk nicht gesetzt, und ausgeblendete Zeilen stehen nicht im Quelltext. Ob der Ladestand dahinter liegt oder wirklich entfallen ist, lässt sich ohne eine Rückmeldung aus der Praxis nicht sagen. Wenn du 8.51 hast: setze in der Gruppe "Battery" beide Haken, speichere die Seite und hänge sie an Issue #148 an.
+
+---
+
+## 🔧 Installation
+
+1. In HACS → **Enpal Solar** öffnen
+2. Auf die **drei Punkte** (⋮) klicken → **Version auswählen**
+3. **Beta-Versionen einblenden** aktivieren
+4. Version **3.0.3b1** auswählen und installieren
+5. Home Assistant **neu starten**
+
+Bestehende Einstellungen bleiben erhalten. Ein Neuaufsetzen der Integration ist nicht nötig.
+
+---
+
+## 🔌 Firmware-Hinweis
+
+Der WebSocket-Modus setzt weiterhin **Solar Rel. 8.50** oder neuer voraus. Auf älteren Ständen läuft der HTML-Polling-Modus unverändert. Die Korrekturen dieser Version wirken in beiden Modi.
