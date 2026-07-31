@@ -50,6 +50,13 @@ _NUMERIC_DEVICE_CLASSES = frozenset({
     "frequency", "battery", "humidity", "pressure",
 })
 
+# JS calls whose .NET caller deserialises the result into a value type.
+# Answering those with null raises inside the circuit and the box tears the
+# connection down, so they get a plausible literal instead.
+_JS_CALL_RESULTS = {
+    "mudpopoverHelper.countProviders": "1",
+}
+
 
 class EnpalWebSocketClient(EnpalApiClient):
     """WebSocket client for the /deviceMessages Blazor page.
@@ -370,12 +377,21 @@ class EnpalWebSocketClient(EnpalApiClient):
             elif target == "JS.BeginInvokeJS":
                 # Always acknowledge JS calls to keep circuit alive
                 if len(args) >= 1:
+                    identifier = args[1] if len(args) > 1 else ""
                     _LOGGER.debug(
                         "[Enpal WebSocket] JS call %s(%s)",
-                        args[1] if len(args) > 1 else "?",
+                        identifier,
                         str(args[2])[:200] if len(args) > 2 else "",
                     )
-                    await self._send_end_invoke_js(args[0])
+                    await self._send_end_invoke_js(
+                        args[0], _JS_CALL_RESULTS.get(identifier, "null")
+                    )
+
+            elif target == "JS.Error":
+                _LOGGER.warning(
+                    "[Enpal WebSocket] Circuit error reported by the box: %s",
+                    args[0] if args else None,
+                )
 
     async def _on_render_batch(self, batch_bytes=None):
         """React to a RenderBatch by patching the baseline from the binary diff.
@@ -403,7 +419,14 @@ class EnpalWebSocketClient(EnpalApiClient):
         # Apply the incremental diff from the binary RenderBatch payload.
         if isinstance(batch_bytes, (bytes, bytearray)):
             try:
-                rows = extract_changed_rows(parse_render_batch_strings(bytes(batch_bytes)))
+                strings = parse_render_batch_strings(bytes(batch_bytes))
+                rows = extract_changed_rows(strings)
+                _LOGGER.debug(
+                    "[Enpal WebSocket] RenderBatch: %d bytes, %d strings, %d sensor row(s), "
+                    "%d dotted key(s)",
+                    len(batch_bytes), len(strings), len(rows),
+                    sum(1 for s in strings if "." in s and " " not in s and len(s) < 60),
+                )
                 if rows:
                     self._apply_diff(rows)
             except Exception:
@@ -551,9 +574,9 @@ class EnpalWebSocketClient(EnpalApiClient):
         msg = [1, {}, None, "OnRenderCompleted", [batch_id, None]]
         await self._send_message(msg)
 
-    async def _send_end_invoke_js(self, task_id: int):
-        """Acknowledge a JS invocation."""
-        result_json = f"[{task_id},true,null]"
+    async def _send_end_invoke_js(self, task_id: int, result: str = "null"):
+        """Acknowledge a JS invocation. ``result`` is raw JSON."""
+        result_json = f"[{task_id},true,{result}]"
         msg = [1, {}, None, "EndInvokeJSFromDotNet", [task_id, True, result_json]]
         await self._send_message(msg)
 
