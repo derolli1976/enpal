@@ -1,10 +1,10 @@
-# 3.0.3b4 - Firmware 8.51 (Beta)
+# 3.0.3b5 - Firmware 8.51 (Beta)
 
 Enpal hat mit **Solar Rel. 8.51** die Seite `/deviceMessages` umgebaut. Auf Boxen mit dieser Firmware zeigen viele Sensoren seitdem Fehlertexte statt Messwerten an. Diese Beta behebt das.
 
 Getestet wurde gegen zwei Seitenstände: `8.51.0-950631` und `8.51.0-955735`.
 
-Gegenüber 3.0.3b3 kommt ein Reparaturversuch für die WebSocket-Verbindung dazu. Die Protokolle aus b3 haben gezeigt, warum die Box die Verbindung sofort wieder beendet. Auf einer Box stehen weiterhin fast alle Sensoren auf "nicht verfügbar". Die Ursache ist inzwischen bekannt und weiter unten beschrieben.
+Gegenüber 3.0.3b4 wird der Verbindungsabbruch an einer weiteren Stelle angegangen. Auf einer Box stehen weiterhin fast alle Sensoren auf "nicht verfügbar". Die Ursache ist bekannt und weiter unten beschrieben.
 
 ---
 
@@ -56,23 +56,26 @@ Bei aktivierter Debug-Protokollierung schreibt die Integration jetzt pro Abruf m
 
 Wenn gar kein Sensor gelesen werden konnte, erscheint eine Warnung mit der Größe der Seite und den gefundenen Karten. Damit lässt sich unterscheiden, ob die Box nichts liefert oder ob die Auswertung scheitert.
 
-Neu in dieser Beta: die WebSocket-Verbindung protokolliert ihren kompletten Nachrichtenverkehr. Jede eingehende Anfrage der Box, jeder JavaScript-Aufruf und jede Antwort auf unsere Aufrufe werden mitgeschrieben. Beendet die Box die Verbindung, steht im Protokoll zusätzlich, wie lange die Verbindung bestand und welche Nachrichten zuletzt eingegangen sind. Fehlermeldungen der Box werden jetzt im Klartext ausgegeben statt verworfen. Zu jedem empfangenen Datenpaket steht die Größe, die Anzahl enthaltener Zeichenketten und die Anzahl erkannter Sensorzeilen im Protokoll.
+Neu in dieser Beta: die WebSocket-Verbindung protokolliert ihren kompletten Nachrichtenverkehr. Jede eingehende Anfrage der Box, jeder JavaScript-Aufruf und jede Antwort auf unsere Aufrufe werden mitgeschrieben. Beendet die Box die Verbindung, steht im Protokoll zusätzlich, wie lange die Verbindung bestand und welche Nachrichten zuletzt eingegangen sind. Fehlermeldungen der Box werden im Klartext ausgegeben statt verworfen. Zu jedem empfangenen Datenpaket steht die Größe, die Anzahl enthaltener Zeichenketten und die Anzahl erkannter Sensorzeilen im Protokoll.
+
+Neu in b5: von den ersten drei großen Datenpaketen einer Verbindung wird der Inhalt der Zeichenkettentabelle mitgeschrieben. Damit lässt sich nachvollziehen, was die Box tatsächlich überträgt, und daraus die künftige Auswertung bauen.
 
 ---
 
 ## 🔌 Verbindung bricht direkt nach dem Aufbau ab
 
-Firmware 8.51 hat der Seite Diagramme und eine Popover-Komponente hinzugefügt. Beim Verbindungsaufbau fragt die Box dafür mehrere JavaScript-Funktionen ab und erwartet Antworten. Eine davon liefert normalerweise eine Zahl zurück. Die Integration hat auf alle diese Anfragen mit einem leeren Wert geantwortet. Auf der Box läuft das in einen Fehler, und sie beendet die Verbindung nach einer halben Sekunde wieder.
+Firmware 8.51 hat der Seite Diagramme und eine Popover-Komponente hinzugefügt. Beim Verbindungsaufbau fragt die Box dafür mehrere JavaScript-Funktionen ab und erwartet Antworten. Die Integration hat auf alle diese Anfragen mit einem leeren Wert geantwortet. Auf der Box läuft das in einen Fehler, und sie beendet die Verbindung nach einer halben Sekunde wieder.
 
 Im Protokoll sah das so aus:
 
 ```
+JS call Radzen.createChart([...])
 JS call mudpopoverHelper.countProviders(None)
-Invocation JS.Error with 1 arg(s)
-Server sent Close: None (0.5s after StartCircuit)
+Circuit error reported by the box: There was an unhandled exception on the current circuit
+Server sent Close: None (0.4s after StartCircuit)
 ```
 
-Diese Anfrage wird jetzt mit einer Zahl beantwortet. Die Verbindung sollte damit stehen bleiben.
+b4 hat die Popover-Abfrage mit einer Zahl beantwortet. Das hat den Abbruch seltener gemacht, aber nicht beseitigt. b5 beantwortet zusätzlich die drei Diagramm-Aufrufe mit den Abmessungen, die sie erwarten.
 
 ---
 
@@ -90,7 +93,7 @@ Ob eine Box betroffen ist, zeigt das Debug-Protokoll:
 [Enpal] Parsed cards: Site Data=4, Battery=0, IoTEdgeDevice=0, PowerSensor=0, Wallbox=0, Inverter=0
 ```
 
-Stehen dort überall Nullen außer bei "Site Data", greift das Problem. Der Fix dafür ist in Arbeit. Die Daten müssen künftig aus der laufenden Verbindung gelesen werden statt aus dem HTTP-Abruf. Diese Beta stellt dazu die Verbindung wieder her und protokolliert, was die Box darauf sendet. Die Sensoren füllen sich damit noch nicht.
+Stehen dort überall Nullen außer bei "Site Data", greift das Problem. Der Fix dafür ist in Arbeit. Die Daten müssen künftig aus der laufenden Verbindung gelesen werden statt aus dem HTTP-Abruf. Das erste Datenpaket nach dem Verbindungsaufbau enthält die Werte noch nicht, es entspricht dem leeren HTTP-Abruf. Sie kommen erst später, wenn die Box die Gerätedaten nachlädt. Dafür muss die Verbindung stehen bleiben. Diese Beta arbeitet daran und protokolliert, was die Box sendet. Die Sensoren füllen sich damit noch nicht.
 
 ---
 
@@ -107,7 +110,7 @@ Die Seite hat neue Schalter "Show unsupported values" und "Show internal values"
 1. In HACS → **Enpal Solar** öffnen
 2. Auf die **drei Punkte** (⋮) klicken → **Version auswählen**
 3. **Beta-Versionen einblenden** aktivieren
-4. Version **3.0.3b4** auswählen und installieren
+4. Version **3.0.3b5** auswählen und installieren
 5. Home Assistant **neu starten**
 
 Bestehende Einstellungen bleiben erhalten. Ein Neuaufsetzen der Integration ist nicht nötig.
