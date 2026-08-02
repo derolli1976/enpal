@@ -50,12 +50,19 @@ _NUMERIC_DEVICE_CLASSES = frozenset({
     "frequency", "battery", "humidity", "pressure",
 })
 
-# JS calls whose .NET caller deserialises the result into a value type.
-# Answering those with null raises inside the circuit and the box tears the
-# connection down, so they get a plausible literal instead.
+# JS calls whose .NET caller deserialises the result into a value type or
+# dereferences it. Answering those with null raises inside the circuit and the
+# box tears the connection down, so they get a plausible literal instead.
 _JS_CALL_RESULTS = {
     "mudpopoverHelper.countProviders": "1",
+    "Radzen.createChart": '{"left":0,"top":0,"width":800,"height":400}',
+    "Radzen.createResizable": '{"left":0,"top":0,"width":800,"height":400}',
 }
+
+# Full string-table dumps of large RenderBatches, for protocol analysis.
+_BATCH_DUMP_LIMIT = 3
+_BATCH_DUMP_MIN_BYTES = 5000
+_BATCH_DUMP_MAX_CHARS = 4000
 
 
 class EnpalWebSocketClient(EnpalApiClient):
@@ -91,6 +98,7 @@ class EnpalWebSocketClient(EnpalApiClient):
         self._key_index: Dict[str, List[int]] = {}
         self._circuit_started: float = 0  # monotonic time of the last StartCircuit
         self._recent_targets: Deque[str] = deque(maxlen=10)
+        self._batches_dumped: int = 0
 
     # ------------------------------------------------------------------
     # Public API
@@ -161,6 +169,7 @@ class EnpalWebSocketClient(EnpalApiClient):
 
             # 7. Start Blazor circuit for /deviceMessages
             self._circuit_started = time.monotonic()
+            self._batches_dumped = 0
             await self._send_start_circuit()
             await asyncio.sleep(0.3)
             await self._send_update_root_components()
@@ -404,6 +413,16 @@ class EnpalWebSocketClient(EnpalApiClient):
         if self._data_callback is None:
             return
 
+        strings: List[str] = []
+        rows: List[Dict] = []
+        if isinstance(batch_bytes, (bytes, bytearray)):
+            try:
+                strings = parse_render_batch_strings(bytes(batch_bytes))
+                rows = extract_changed_rows(strings)
+            except Exception:
+                _LOGGER.exception("[Enpal WebSocket] RenderBatch decode failed")
+            self._log_batch(len(batch_bytes), strings, rows)
+
         # Seed the baseline if we have not scraped yet (a push can arrive
         # before the coordinator's first poll completes).
         if self._baseline is None:
@@ -416,19 +435,9 @@ class EnpalWebSocketClient(EnpalApiClient):
             await self._push()
             return
 
-        # Apply the incremental diff from the binary RenderBatch payload.
-        if isinstance(batch_bytes, (bytes, bytearray)):
+        if rows:
             try:
-                strings = parse_render_batch_strings(bytes(batch_bytes))
-                rows = extract_changed_rows(strings)
-                _LOGGER.debug(
-                    "[Enpal WebSocket] RenderBatch: %d bytes, %d strings, %d sensor row(s), "
-                    "%d dotted key(s)",
-                    len(batch_bytes), len(strings), len(rows),
-                    sum(1 for s in strings if "." in s and " " not in s and len(s) < 60),
-                )
-                if rows:
-                    self._apply_diff(rows)
+                self._apply_diff(rows)
             except Exception:
                 _LOGGER.exception("[Enpal WebSocket] Incremental diff failed")
 
@@ -438,6 +447,25 @@ class EnpalWebSocketClient(EnpalApiClient):
             return
         self._last_push_time = now
         await self._push()
+
+    def _log_batch(self, size: int, strings: List[str], rows: List[Dict]) -> None:
+        """Log RenderBatch metrics, plus the string table for the first big ones."""
+        if not _LOGGER.isEnabledFor(logging.DEBUG):
+            return
+        _LOGGER.debug(
+            "[Enpal WebSocket] RenderBatch: %d bytes, %d strings, %d sensor row(s), "
+            "%d dotted key(s)",
+            size, len(strings), len(rows),
+            sum(1 for s in strings if "." in s and " " not in s and len(s) < 60),
+        )
+        if size < _BATCH_DUMP_MIN_BYTES or self._batches_dumped >= _BATCH_DUMP_LIMIT:
+            return
+        self._batches_dumped += 1
+        dump = " | ".join(s.strip() for s in strings if s.strip())
+        _LOGGER.debug(
+            "[Enpal WebSocket] RenderBatch string table %d/%d: %s",
+            self._batches_dumped, _BATCH_DUMP_LIMIT, dump[:_BATCH_DUMP_MAX_CHARS],
+        )
 
     async def _push(self) -> None:
         """Send the current baseline to the registered data callback."""
