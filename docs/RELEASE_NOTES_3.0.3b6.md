@@ -1,10 +1,10 @@
-# 3.0.3b5 - Firmware 8.51 (Beta)
+# 3.0.3b6 - Firmware 8.51 (Beta)
 
 Enpal hat mit **Solar Rel. 8.51** die Seite `/deviceMessages` umgebaut. Auf Boxen mit dieser Firmware zeigen viele Sensoren seitdem Fehlertexte statt Messwerten an. Diese Beta behebt das.
 
 Getestet wurde gegen zwei Seitenstände: `8.51.0-950631` und `8.51.0-955735`.
 
-Gegenüber 3.0.3b4 wird der Verbindungsabbruch an einer weiteren Stelle angegangen. Auf einer Box stehen weiterhin fast alle Sensoren auf "nicht verfügbar". Die Ursache ist bekannt und weiter unten beschrieben.
+Gegenüber 3.0.3b5 liest der WebSocket-Modus die Sensordaten jetzt direkt aus den Datenpaketen der Box. Damit füllen sich die Sensoren auch auf Boxen, deren HTTP-Abruf leer bleibt.
 
 ---
 
@@ -58,7 +58,7 @@ Wenn gar kein Sensor gelesen werden konnte, erscheint eine Warnung mit der Grö�
 
 Neu in dieser Beta: die WebSocket-Verbindung protokolliert ihren kompletten Nachrichtenverkehr. Jede eingehende Anfrage der Box, jeder JavaScript-Aufruf und jede Antwort auf unsere Aufrufe werden mitgeschrieben. Beendet die Box die Verbindung, steht im Protokoll zusätzlich, wie lange die Verbindung bestand und welche Nachrichten zuletzt eingegangen sind. Fehlermeldungen der Box werden im Klartext ausgegeben statt verworfen. Zu jedem empfangenen Datenpaket steht die Größe, die Anzahl enthaltener Zeichenketten und die Anzahl erkannter Sensorzeilen im Protokoll.
 
-Neu in b5: von den ersten drei großen Datenpaketen einer Verbindung wird der Inhalt der Zeichenkettentabelle mitgeschrieben. Damit lässt sich nachvollziehen, was die Box tatsächlich überträgt, und daraus die künftige Auswertung bauen.
+Neu in b5: von den ersten drei großen Datenpaketen einer Verbindung wird der Inhalt der Zeichenkettentabelle mitgeschrieben. Damit lässt sich nachvollziehen, was die Box tatsächlich überträgt. Genau diese Ausgabe hat die Grundlage für die neue Auswertung in b6 geliefert.
 
 ---
 
@@ -75,25 +75,31 @@ Circuit error reported by the box: There was an unhandled exception on the curre
 Server sent Close: None (0.4s after StartCircuit)
 ```
 
-b4 hat die Popover-Abfrage mit einer Zahl beantwortet. Das hat den Abbruch seltener gemacht, aber nicht beseitigt. b5 beantwortet zusätzlich die drei Diagramm-Aufrufe mit den Abmessungen, die sie erwarten.
+b4 hat die Popover-Abfrage mit einer Zahl beantwortet. Das hat den Abbruch seltener gemacht, aber nicht beseitigt. b5 beantwortet zusätzlich die drei Diagramm-Aufrufe mit den Abmessungen, die sie erwarten. Ein Testlog aus b5 zeigt die Verbindung über mehr als 20 Minuten stabil, ohne einen einzigen Circuit-Fehler.
 
 ---
 
-## 🚧 Bekanntes Problem auf 8.51
+## 📡 Sensordaten kommen jetzt aus der WebSocket-Verbindung
 
-Auf mindestens einer Box stehen trotz dieser Korrekturen fast alle Sensoren auf "nicht verfügbar". Der Grund liegt tiefer als die Auswertung.
+Auf Firmware 8.51 enthält der HTTP-Abruf von `/deviceMessages` nur noch die Karte "Site Data". Alle Gerätekarten sind leer und tragen den Hinweis `No messages available for this device.` Die Zeilen entstehen erst in der laufenden Blazor-Verbindung. Im Browser sieht die Seite deshalb vollständig aus, beim Abruf durch die Integration nicht.
 
-Ruft man `/deviceMessages` direkt über HTTP ab, enthält die Antwort nur noch die Karte "Site Data" mit Werten. Alle Gerätekarten sind leer und tragen den Hinweis `No messages available for this device.` Die Zeilen entstehen erst, wenn die Box ihre Weboberfläche über eine offene Verbindung nachlädt. Im Browser sieht die Seite deshalb vollständig aus, beim Abruf durch die Integration nicht.
+Die Logs aus b5 haben gezeigt: Sobald die Verbindung steht, schickt die Box etwa alle fünf Sekunden ein Datenpaket mit den geänderten Zeilen. Schlüssel, Wert, Einheit und Zeitstempel sind enthalten. Nur die Gruppe fehlt.
 
-Damit liefert der HTML-Modus auf diesen Boxen nur noch die vier Werte aus "Site Data". Der WebSocket-Modus könnte die Lücke schließen, aber die Box beendet die Verbindung kurz nach dem Aufbau wieder, bevor Daten ankommen.
+Diese Beta legt daraus Sensoren an:
 
-Ob eine Box betroffen ist, zeigt das Debug-Protokoll:
+- Taucht in einem Datenpaket ein Schlüssel auf, den die Integration noch nicht kennt, wird der Sensor direkt angelegt.
+- Die Gruppe wird über eine feste Zuordnungstabelle bestimmt, damit die Entity-IDs identisch zu Firmware 8.50 bleiben. Verlauf und Automatisierungen laufen weiter.
+- Schlüssel ohne bekannte Gruppe werden übersprungen. Eine falsche ID wäre schlimmer als ein fehlender Sensor.
+- Die so angelegten Sensoren überleben den periodischen HTTP-Abruf, der auf 8.51 weiterhin fast leer zurückkommt.
 
-```
-[Enpal] Parsed cards: Site Data=4, Battery=0, IoTEdgeDevice=0, PowerSensor=0, Wallbox=0, Inverter=0
-```
+Die Auswertung der Datenpakete versteht jetzt auch das neue Zeilenformat von 8.51 mit der Spalte "Notes". Zeilen ohne Messwert werden übersprungen, der Sensor behält seinen letzten Wert. Wh-Werte werden wie bisher in kWh umgerechnet.
 
-Stehen dort überall Nullen außer bei "Site Data", greift das Problem. Der Fix dafür ist in Arbeit. Die Daten müssen künftig aus der laufenden Verbindung gelesen werden statt aus dem HTTP-Abruf. Das erste Datenpaket nach dem Verbindungsaufbau enthält die Werte noch nicht, es entspricht dem leeren HTTP-Abruf. Sie kommen erst später, wenn die Box die Gerätedaten nachlädt. Dafür muss die Verbindung stehen bleiben. Diese Beta arbeitet daran und protokolliert, was die Box sendet. Die Sensoren füllen sich damit noch nicht.
+Zwei Einschränkungen bleiben:
+
+- Es erscheinen nur Sensoren, deren Werte sich ändern. Statische Werte wie Seriennummern tauchen erst auf, wenn die Box sie einmal aktualisiert.
+- Der Inverter-Systemstatus wird auf 8.51 als langer HTML-Text übertragen und im WebSocket-Modus noch nicht in Einzelsensoren zerlegt.
+
+Der HTML-Modus liefert auf betroffenen Boxen weiterhin nur die Werte aus "Site Data". Wenn deine Box betroffen ist, stelle die Integration in den Einstellungen auf den WebSocket-Modus um.
 
 ---
 
@@ -101,7 +107,7 @@ Stehen dort überall Nullen außer bei "Site Data", greift das Problem. Der Fix 
 
 Der Batterie-Ladestand `Energy.Battery.Charge.Level` fehlt auf beiden getesteten 8.51-Seiten komplett. Die Gruppe "Battery" enthält nur noch die maximale AC-Leistung und die Seriennummern.
 
-Die Seite hat neue Schalter "Show unsupported values" und "Show internal values". Sie sind ab Werk nicht gesetzt, und ausgeblendete Zeilen stehen nicht im Quelltext. Ob der Ladestand dahinter liegt oder wirklich entfallen ist, lässt sich erst klären, wenn die Datenanbindung auf 8.51 wieder läuft.
+Die Seite hat neue Schalter "Show unsupported values" und "Show internal values". Sie sind ab Werk nicht gesetzt, und ausgeblendete Zeilen stehen nicht im Quelltext. Ob der Ladestand dahinter liegt oder wirklich entfallen ist, ist weiter offen. Taucht er in den Datenpaketen der Box auf, legt diese Beta den Sensor automatisch wieder an.
 
 ---
 
@@ -110,7 +116,7 @@ Die Seite hat neue Schalter "Show unsupported values" und "Show internal values"
 1. In HACS → **Enpal Solar** öffnen
 2. Auf die **drei Punkte** (⋮) klicken → **Version auswählen**
 3. **Beta-Versionen einblenden** aktivieren
-4. Version **3.0.3b5** auswählen und installieren
+4. Version **3.0.3b6** auswählen und installieren
 5. Home Assistant **neu starten**
 
 Bestehende Einstellungen bleiben erhalten. Ein Neuaufsetzen der Integration ist nicht nötig.
