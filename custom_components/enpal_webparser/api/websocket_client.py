@@ -486,6 +486,15 @@ class EnpalWebSocketClient(EnpalApiClient):
         """
         from ..utils import make_id
 
+        # Carry over sensors created from RenderBatch rows.  On firmware 8.51
+        # the HTTP scrape does not contain the device rows, so a fresh scrape
+        # would silently drop them on every periodic poll.
+        if self._baseline:
+            known = {make_id(s.get("name", "")) for s in sensors}
+            for sensor in self._baseline:
+                if sensor.get("raw_key") and make_id(sensor.get("name", "")) not in known:
+                    sensors.append(sensor)
+
         self._baseline = sensors
         index: Dict[str, List[int]] = {}
         for i, sensor in enumerate(sensors):
@@ -495,7 +504,11 @@ class EnpalWebSocketClient(EnpalApiClient):
             prefix = f"{group}: "
             if group and name.startswith(prefix):
                 label = name[len(prefix):]
-            index.setdefault(make_id(label), []).append(i)
+            ids = {make_id(label)}
+            if sensor.get("raw_key"):
+                ids.add(make_id(sensor["raw_key"]))
+            for key_id in ids:
+                index.setdefault(key_id, []).append(i)
         self._key_index = index
 
     def _apply_diff(self, rows: List[Dict]) -> None:
@@ -509,15 +522,22 @@ class EnpalWebSocketClient(EnpalApiClient):
         from ..const import UNIT_DEVICE_CLASS_MAP, DEFAULT_UNITS, SENSOR_KEY_ALIASES
 
         patched = 0
+        created = 0
         for row in rows:
             value = row.get("value")
             if not is_patchable_value(value):
                 continue
-            key = SENSOR_KEY_ALIASES.get(row["key"], row["key"])
-            indices = self._key_index.get(make_id(key))
-            # Skip unknown keys (new sensors) and ambiguous cross-group keys;
-            # the periodic full scrape handles those correctly.
-            if not indices or len(indices) != 1:
+            raw_key = row["key"]
+            key = SENSOR_KEY_ALIASES.get(raw_key, raw_key)
+            indices = self._key_index.get(make_id(raw_key)) or self._key_index.get(make_id(key))
+            if not indices:
+                # Unknown key: on firmware 8.51 the device rows never show up
+                # in the HTTP scrape, so create the sensor from the row.
+                if self._create_sensor_from_row(row):
+                    created += 1
+                continue
+            # Ambiguous cross-group keys are left to the full scrape.
+            if len(indices) != 1:
                 continue
 
             sensor = self._baseline[indices[0]]
@@ -548,6 +568,68 @@ class EnpalWebSocketClient(EnpalApiClient):
 
         if patched:
             _LOGGER.debug("[Enpal WebSocket] Incrementally patched %d sensor(s)", patched)
+        if created:
+            _LOGGER.info("[Enpal WebSocket] Created %d sensor(s) from RenderBatch rows", created)
+
+    def _create_sensor_from_row(self, row: Dict) -> bool:
+        """Add a baseline sensor for a RenderBatch row with an unknown key.
+
+        The row carries no group, so it is restored from the static
+        ``SENSOR_KEY_GROUPS`` table.  Keys without a known group are skipped
+        because a wrong group would produce a wrong entity id.
+        """
+        from ..utils import (
+            make_id,
+            friendly_name,
+            get_class_and_unit,
+            normalize_value_and_unit,
+        )
+        from ..const import (
+            UNIT_DEVICE_CLASS_MAP,
+            DEFAULT_UNITS,
+            DEVICE_CLASS_OVERRIDES,
+            SENSOR_KEY_ALIASES,
+            SENSOR_KEY_GROUPS,
+        )
+
+        raw_key = row["key"]
+        group = SENSOR_KEY_GROUPS.get(raw_key)
+        if group is None or group not in self.groups:
+            return False
+        key = SENSOR_KEY_ALIASES.get(raw_key, raw_key)
+
+        value = row.get("value")
+        unit_raw = row.get("unit")
+        combined = value if not unit_raw else f"{value} {unit_raw}"
+        unit, device_class = get_class_and_unit(combined, UNIT_DEVICE_CLASS_MAP)
+        value_clean, unit = normalize_value_and_unit(
+            combined, unit, device_class, DEFAULT_UNITS
+        )
+
+        sensor = {
+            "name": friendly_name(group, key),
+            "value": value_clean,
+            "unit": unit,
+            "device_class": device_class,
+            "enabled": True,
+            "enpal_last_update": row.get("timestamp"),
+            "group": group,
+            "raw_key": raw_key,
+        }
+        sensor_id = make_id(sensor["name"])
+        if sensor_id in DEVICE_CLASS_OVERRIDES:
+            sensor["device_class"] = DEVICE_CLASS_OVERRIDES[sensor_id]
+
+        idx = len(self._baseline)
+        self._baseline.append(sensor)
+        label = sensor["name"][len(f"{group}: "):]
+        for key_id in {make_id(label), make_id(raw_key)}:
+            self._key_index.setdefault(key_id, []).append(idx)
+        _LOGGER.debug(
+            "[Enpal WebSocket] Created sensor from RenderBatch: %s = %s %s",
+            sensor["name"], value_clean, unit or "",
+        )
+        return True
 
     @staticmethod
     def _is_numeric_sensor(sensor: Dict) -> bool:

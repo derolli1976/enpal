@@ -247,3 +247,158 @@ def test_apply_diff_allows_nonnumeric_value_for_string_sensor():
     ])
 
     assert sensor["value"] == "cronny.hw_metrics.fail"
+
+
+# ---------------------------------------------------------------------------
+# Firmware 8.51: row layout with Notes column and css helper classes
+# ---------------------------------------------------------------------------
+
+# String table reconstructed from a real 3.0.3b5 debug log (firmware 8.51).
+_851_STRINGS = [
+    "onchange", "tr", "class",
+    "dp-flash pi-row-validation", "td",
+    "SerialNumber.Battery.Unit.2", "colspan", "3", "pi-note-cell", "span",
+    "pi-note-text", "tabindex", "0",
+    "invalid: SerialNumber.Battery.Unit.2 contains invalid characters",
+    "dp-flash pi-row-validation",
+    "Cpu.Load", "3", "pi-note-cell", "pi-note-text", "0",
+    "invalid: Cpu.Load unit type is incorrect. Expected: None, Value: Percent",
+    "dp-flash",
+    "Current.Wallbox.Connector.1.Phase.A", "0.02", "A", "text-nowrap",
+    "width: 1%;", "18:19:44.00", "pi-note-cell", "pi-note-text", "0",
+    "calculated value",
+    "dp-flash",
+    "Count.Wallbox.Connector.1.Phases.Charging", "3", "text-nowrap", "style",
+    "width: 1%;", "18:19:50.50", "pi-note-cell", "pi-note-text", "0",
+    "calculated value",
+    "dp-flash pi-row-validation",
+    "Inverter.Power.Total", "1373", "W", "text-nowrap", "width: 1%;",
+    "17:45:58.77", "pi-note-cell", "pi-note-text", "0",
+    "more recent value invalid: Time Current between values is too large.",
+]
+
+
+def test_extract_changed_rows_851_layout():
+    rows = extract_changed_rows(_851_STRINGS)
+    by_key = {r["key"]: r for r in rows}
+
+    # Note-only rows carry no reading and must be skipped.
+    assert "SerialNumber.Battery.Unit.2" not in by_key
+    assert "Cpu.Load" not in by_key
+
+    assert by_key["Current.Wallbox.Connector.1.Phase.A"] == {
+        "key": "Current.Wallbox.Connector.1.Phase.A",
+        "value": "0.02",
+        "unit": "A",
+        "timestamp": "18:19:44.00",
+    }
+    # Value without a unit, "style" between value cell and timestamp.
+    assert by_key["Count.Wallbox.Connector.1.Phases.Charging"]["value"] == "3"
+    assert by_key["Count.Wallbox.Connector.1.Phases.Charging"]["unit"] is None
+    assert by_key["Count.Wallbox.Connector.1.Phases.Charging"]["timestamp"] == "18:19:50.50"
+    # Validation rows that still carry a stale value are extracted.
+    assert by_key["Inverter.Power.Total"]["value"] == "1373"
+    assert by_key["Inverter.Power.Total"]["unit"] == "W"
+    assert len(rows) == 3
+
+
+# ---------------------------------------------------------------------------
+# Firmware 8.51: creating baseline sensors from RenderBatch rows
+# ---------------------------------------------------------------------------
+
+def _site_data_only_baseline():
+    """Simulate the 8.51 HTTP scrape, which only contains the Site Data card."""
+    return [s for s in _load_baseline() if s.get("group") == "Site Data"]
+
+
+def test_apply_diff_creates_sensor_with_known_group():
+    baseline = _site_data_only_baseline()
+    client = EnpalWebSocketClient("http://box.local", groups=list(DEFAULT_GROUPS))
+    client._set_baseline(baseline)
+
+    client._apply_diff([
+        {"key": "Current.Wallbox.Connector.1.Phase.A", "value": "0.02",
+         "unit": "A", "timestamp": "18:19:44.00"},
+        {"key": "Energy.Wallbox.Connector.1.Charged.Total", "value": "12725400",
+         "unit": "Wh", "timestamp": "18:19:44.00"},
+    ])
+
+    created = _find(client._baseline, "Current.Wallbox.Connector.1.Phase.A")
+    assert created is not None
+    assert created["group"] == "Wallbox"
+    assert created["value"] == "0.02"
+    assert created["unit"] == "A"
+    assert created["raw_key"] == "Current.Wallbox.Connector.1.Phase.A"
+
+    # Wh values are normalized to kWh like in the HTML parser.
+    energy = _find(client._baseline, "Energy.Wallbox.Connector.1.Charged.Total")
+    assert energy is not None
+    assert energy["unit"] == "kWh"
+    assert float(energy["value"]) == 12725.4
+
+    # A second diff patches the created sensor instead of duplicating it.
+    count_before = len(client._baseline)
+    client._apply_diff([
+        {"key": "Current.Wallbox.Connector.1.Phase.A", "value": "0.05",
+         "unit": "A", "timestamp": "18:19:54.00"},
+    ])
+    assert created["value"] == "0.05"
+    assert len(client._baseline) == count_before
+
+
+def test_apply_diff_creates_aliased_inverter_sensor():
+    baseline = _site_data_only_baseline()
+    client = EnpalWebSocketClient("http://box.local", groups=list(DEFAULT_GROUPS))
+    client._set_baseline(baseline)
+
+    client._apply_diff([
+        {"key": "Power.Battery.Charge.Max.Inverter", "value": "5000",
+         "unit": "W", "timestamp": "16:56:02.58"},
+    ])
+
+    # The alias strips the ".Inverter" suffix so the entity id matches 8.50.
+    created = _find(client._baseline, "Power.Battery.Charge.Max")
+    assert created is not None
+    assert created["group"] == "Inverter"
+    assert created["value"] == "5000"
+    assert created["raw_key"] == "Power.Battery.Charge.Max.Inverter"
+
+
+def test_apply_diff_creation_respects_group_selection():
+    baseline = _site_data_only_baseline()
+    client = EnpalWebSocketClient("http://box.local", groups=["Site Data", "Wallbox"])
+    client._set_baseline(baseline)
+
+    client._apply_diff([
+        {"key": "Cpu.Load", "value": "12", "unit": "%",
+         "timestamp": "18:19:44.00"},
+    ])
+
+    # IoTEdgeDevice is not selected, so no sensor is created.
+    assert _find(client._baseline, "Cpu.Load") is None
+
+
+def test_set_baseline_keeps_diff_created_sensors():
+    baseline = _site_data_only_baseline()
+    client = EnpalWebSocketClient("http://box.local", groups=list(DEFAULT_GROUPS))
+    client._set_baseline(baseline)
+
+    client._apply_diff([
+        {"key": "Current.Wallbox.Connector.1.Phase.A", "value": "0.02",
+         "unit": "A", "timestamp": "18:19:44.00"},
+    ])
+    assert _find(client._baseline, "Current.Wallbox.Connector.1.Phase.A") is not None
+
+    # The periodic full scrape on 8.51 again returns only Site Data.
+    client._set_baseline(_site_data_only_baseline())
+
+    kept = _find(client._baseline, "Current.Wallbox.Connector.1.Phase.A")
+    assert kept is not None
+    assert kept["value"] == "0.02"
+
+    # And it stays patchable after the merge.
+    client._apply_diff([
+        {"key": "Current.Wallbox.Connector.1.Phase.A", "value": "0.07",
+         "unit": "A", "timestamp": "18:19:54.00"},
+    ])
+    assert kept["value"] == "0.07"

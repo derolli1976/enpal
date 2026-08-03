@@ -12,9 +12,18 @@ offsets.  The final one points at the string table, which is an array of
 ``int32`` offsets, each pointing at a VLQ-length-prefixed UTF-8 string.
 
 For the Enpal ``/deviceMessages`` page every updated table row is emitted, in
-DOM order, as the following run of strings::
+DOM order, as one of the following runs of strings::
 
+    # firmware 8.50
     'dp-flash', '<Key>', '<ws>', '<value>'[, '<unit>'], '<ws>', '<timestamp>'
+
+    # firmware 8.51 (extra Notes column, css helper classes)
+    'dp-flash[ pi-row-validation]', '<Key>', '<value>'[, '<unit>'],
+    'text-nowrap', ['style',] 'width: 1%;', '<timestamp>',
+    'pi-note-cell', 'pi-note-text', '0', '<note text>'
+
+    # firmware 8.51, row without a reading (note only)
+    'dp-flash pi-row-validation', '<Key>', ['colspan',] '3', 'pi-note-cell', ...
 
 where ``<ws>`` is a pure-whitespace separator.  Recovering the changed rows is
 therefore a simple linear scan over the decoded string table - no virtual DOM
@@ -27,6 +36,7 @@ plain interval polling.
 """
 
 import io
+import re
 import struct
 import logging
 from typing import Dict, List, Optional
@@ -35,6 +45,16 @@ _LOGGER = logging.getLogger(__name__)
 
 # Strings that frame a sensor row but carry no data themselves.
 _STRUCTURAL = {"onchange", "tr", "td", "class", "dp-flash", ""}
+
+# 8.51: end of the value cell / start of a note-only row.
+_VALUE_END = {"text-nowrap"}
+_NOTE_MARKERS = {"pi-note-cell", "colspan"}
+
+# 8.51 timestamps are time-only ("18:19:44.00"), 8.50 ones are full
+# date-times; both contain an HH:MM:SS run.
+_TIME_RE = re.compile(r"\d{1,2}:\d{2}:\d{2}")
+
+_MAX_VALUE_TOKENS = 4
 
 # Values longer than this are not sensor readings we want to patch
 # incrementally (e.g. the inverter system-state bitfield, which the HTML
@@ -95,52 +115,89 @@ def _is_ws(s: str) -> bool:
     return s.strip() == ""
 
 
+def _is_row_class(s: str) -> bool:
+    return s == "dp-flash" or s.startswith("dp-flash ")
+
+
+def _find_timestamp(strings: List[str], start: int) -> Optional[str]:
+    """Take the first time-looking string after the value cell."""
+    n = len(strings)
+    for k in range(start, min(start + 6, n)):
+        s = strings[k]
+        if s in _NOTE_MARKERS or _is_row_class(s):
+            return None
+        if _is_ws(s) or s == "style" or s.endswith(";"):
+            continue
+        if _TIME_RE.search(s):
+            return s
+        return None
+    return None
+
+
 def extract_changed_rows(strings: List[str]) -> List[Dict[str, Optional[str]]]:
     """Extract changed sensor rows from a decoded string table.
 
     Returns a list of ``{"key", "value", "unit", "timestamp"}`` dicts, one per
-    ``dp-flash`` row that looks like a sensor (dotted key).
+    ``dp-flash`` row that looks like a sensor (dotted key).  Rows without a
+    reading (8.51 note-only rows) are skipped so the entity keeps its last
+    value.
     """
     rows: List[Dict[str, Optional[str]]] = []
     n = len(strings)
     i = 0
     while i < n:
-        if strings[i] != "dp-flash":
+        if not _is_row_class(strings[i]):
             i += 1
             continue
 
         # The sensor key is the next non-structural string.
         j = i + 1
-        while j < n and strings[j] in _STRUCTURAL:
+        while j < n and (strings[j] in _STRUCTURAL or _is_ws(strings[j])):
             j += 1
         if j >= n:
             break
 
         key = strings[j]
         # Sensor keys are dotted identifiers (e.g. "Battery.Unit.1.Voltage").
-        if not key or _is_ws(key) or "." not in key:
-            i = j
+        if not key or "." not in key or " " in key:
+            i = j if _is_row_class(key) else j + 1
             continue
 
-        # Advance to the first whitespace separator after the key.
+        # Collect value tokens (value, optional unit).  8.50 separates them
+        # with whitespace strings, 8.51 with css helper classes.
         k = j + 1
-        while k < n and not _is_ws(strings[k]):
-            k += 1
-        # Collect value tokens (value, optional unit) until the next separator.
-        k += 1
+        if k < n and _is_ws(strings[k]):
+            k += 1  # single leading separator (8.50)
         value_tokens: List[str] = []
-        while k < n and not _is_ws(strings[k]):
-            value_tokens.append(strings[k])
+        end = None
+        while k < n:
+            s = strings[k]
+            if _is_ws(s) or s in _VALUE_END:
+                end = "value"
+                break
+            if s in _NOTE_MARKERS:
+                end = "note"
+                break
+            if _is_row_class(s):
+                end = "row"
+                break
+            if len(value_tokens) >= _MAX_VALUE_TOKENS:
+                end = "overflow"
+                break
+            value_tokens.append(s)
             k += 1
-        # The timestamp follows the second whitespace separator.
-        k += 1
-        timestamp = strings[k] if k < n else None
+
+        if end != "value":
+            # Note-only row, truncated frame or run into the next row: no
+            # reading to apply.
+            i = k if end == "row" else k + 1
+            continue
 
         rows.append({
             "key": key,
             "value": value_tokens[0] if value_tokens else "",
             "unit": value_tokens[1] if len(value_tokens) > 1 else None,
-            "timestamp": timestamp,
+            "timestamp": _find_timestamp(strings, k + 1),
         })
         i = k + 1
 
