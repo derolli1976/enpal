@@ -17,6 +17,9 @@ jobs:
           - os: ubuntu-latest
             artifact: enpal-sniffer-linux
             data_sep: ":"
+          - os: macos-14
+            artifact: enpal-sniffer-macos-arm64
+            data_sep: ":"
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
