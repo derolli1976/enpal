@@ -4,11 +4,14 @@ The fast path parses changed sensor rows straight from the RenderBatch binary
 payload so the integration no longer HTTP re-scrapes /deviceMessages on every
 server push.
 """
+import asyncio
 import os
+import struct
 
 from custom_components.enpal_webparser.api.render_batch import (
     parse_render_batch_strings,
     extract_changed_rows,
+    extract_event_handlers,
     is_patchable_value,
 )
 from custom_components.enpal_webparser.api.websocket_client import EnpalWebSocketClient
@@ -402,3 +405,128 @@ def test_set_baseline_keeps_diff_created_sensors():
          "unit": "A", "timestamp": "18:19:54.00"},
     ])
     assert kept["value"] == "0.07"
+
+
+# ---------------------------------------------------------------------------
+# Page toggles (firmware 8.51: "Show unsupported/internal values")
+# ---------------------------------------------------------------------------
+
+def _attr_frame(name_idx: int, value_idx: int, event_id: int = 0) -> bytes:
+    return struct.pack("<iiiq", 3, name_idx, value_idx, event_id)
+
+
+def _elem_frame() -> bytes:
+    return struct.pack("<iiiq", 1, 0, 0, 0)
+
+
+def _build_batch(frames, strings) -> bytes:
+    """Assemble a minimal RenderBatch binary (blobs, frames, table, footer)."""
+    buf = bytearray()
+    offsets = []
+    for s in strings:
+        offsets.append(len(buf))
+        data = s.encode("utf-8")
+        buf.append(len(data))  # VLQ, all test strings < 128 bytes
+        buf += data
+    frames_offset = len(buf)
+    buf += struct.pack("<i", len(frames))
+    for frame in frames:
+        buf += frame
+    frames_end = len(buf)
+    string_table_offset = len(buf)
+    for off in offsets:
+        buf += struct.pack("<i", off)
+    buf += struct.pack("<5i", 0, frames_offset, frames_end, 0, string_table_offset)
+    return bytes(buf)
+
+
+_TOGGLE_STRINGS = [
+    "input", "class", "form-check-input", "id",
+    "showUnsupported_Battery", "type", "checkbox", "onchange",
+    "showInternal_Battery", "showUnsupported_IoTEdgeDevice",
+]
+
+_TOGGLE_FRAMES = [
+    _elem_frame(),
+    _attr_frame(1, 2),        # class="form-check-input"
+    _attr_frame(3, 4),        # id="showUnsupported_Battery"
+    _attr_frame(5, 6),        # type="checkbox"
+    _attr_frame(7, -1, 42),   # onchange -> handler 42
+    _elem_frame(),
+    _attr_frame(3, 8),        # id="showInternal_Battery"
+    _attr_frame(7, -1, 43),
+    _elem_frame(),
+    _attr_frame(3, 9),        # id="showUnsupported_IoTEdgeDevice"
+    _attr_frame(7, -1, 44),
+    _elem_frame(),
+    _attr_frame(7, -1, 99),   # handler without a DOM id -> ignored
+]
+
+
+def test_extract_event_handlers_finds_checkbox_toggles():
+    raw = _build_batch(_TOGGLE_FRAMES, _TOGGLE_STRINGS)
+    assert extract_event_handlers(raw) == {
+        "showUnsupported_Battery": 42,
+        "showInternal_Battery": 43,
+        "showUnsupported_IoTEdgeDevice": 44,
+    }
+
+
+def test_extract_event_handlers_handles_garbage():
+    assert extract_event_handlers(b"") == {}
+    assert extract_event_handlers(b"\x00" * 25) == {}
+    handlers = extract_event_handlers(_load_batch())
+    assert isinstance(handlers, dict)
+
+
+def test_collect_toggle_handlers_filters_groups():
+    client = EnpalWebSocketClient("http://box.local", groups=["Battery", "Site Data"])
+    raw = _build_batch(_TOGGLE_FRAMES, _TOGGLE_STRINGS)
+
+    client._collect_toggle_handlers(raw)
+
+    # IoTEdgeDevice is not selected, its toggle is ignored.
+    assert client._toggle_handlers == {
+        "showUnsupported_Battery": 42,
+        "showInternal_Battery": 43,
+    }
+
+
+def test_activate_next_toggle_one_per_batch_and_retry():
+    client = EnpalWebSocketClient("http://box.local", groups=["Battery"])
+    sent = []
+
+    async def fake_send(msg):
+        sent.append(msg)
+
+    client._send_message = fake_send
+
+    class FakeWS:
+        closed = False
+
+    client.ws = FakeWS()
+    client._toggle_handlers = {
+        "showUnsupported_Battery": 42,
+        "showInternal_Battery": 43,
+    }
+
+    # One checkbox per RenderBatch cycle.
+    asyncio.run(client._activate_next_toggle())
+    assert len(sent) == 1
+    asyncio.run(client._activate_next_toggle())
+    assert len(sent) == 2
+    asyncio.run(client._activate_next_toggle())
+    assert len(sent) == 2  # nothing pending
+
+    # The dispatch goes through DispatchEventAsync with the handler id.
+    msg = sent[0]
+    assert msg[3] == "BeginInvokeDotNetFromJS"
+    assert msg[4][2] == "DispatchEventAsync"
+    assert '"eventHandlerId": 42' in msg[4][4]
+    assert '"eventName": "change"' in msg[4][4]
+
+    # A re-render assigned a new handler id -> the toggle is clicked again.
+    client._toggle_handlers["showUnsupported_Battery"] = 52
+    asyncio.run(client._activate_next_toggle())
+    assert len(sent) == 3
+    assert '"eventHandlerId": 52' in sent[2][4][4]

@@ -31,6 +31,7 @@ from .protocol import (
 from .render_batch import (
     parse_render_batch_strings,
     extract_changed_rows,
+    extract_event_handlers,
     is_patchable_value,
 )
 
@@ -63,6 +64,12 @@ _JS_CALL_RESULTS = {
 _BATCH_DUMP_LIMIT = 3
 _BATCH_DUMP_MIN_BYTES = 5000
 _BATCH_DUMP_MAX_CHARS = 4000
+
+# Firmware 8.51 hides some rows (e.g. Energy.Battery.Charge.Level) behind
+# per-card "Show unsupported values" / "Show internal values" checkboxes.
+# Those are circuit state, so our own circuit must switch them on to receive
+# the hidden rows. The DOM id suffix is the group name (showInternal_Battery).
+_TOGGLE_ID_PREFIXES = ("showUnsupported_", "showInternal_")
 
 
 class EnpalWebSocketClient(EnpalApiClient):
@@ -99,6 +106,12 @@ class EnpalWebSocketClient(EnpalApiClient):
         self._circuit_started: float = 0  # monotonic time of the last StartCircuit
         self._recent_targets: Deque[str] = deque(maxlen=10)
         self._batches_dumped: int = 0
+        # "Show unsupported/internal values" checkboxes (firmware 8.51)
+        self._toggle_handlers: Dict[str, int] = {}   # dom id -> event handler id
+        self._toggles_attempted: Dict[str, int] = {}  # dom id -> handler id last clicked
+        self._pending_toggle_calls: Dict[int, str] = {}  # dotnet call id -> dom id
+        self._renderer_interop_id: int = 1  # DotNet object ref for DispatchEventAsync
+        self._dotnet_call_counter: int = 0
 
     # ------------------------------------------------------------------
     # Public API
@@ -170,6 +183,10 @@ class EnpalWebSocketClient(EnpalApiClient):
             # 7. Start Blazor circuit for /deviceMessages
             self._circuit_started = time.monotonic()
             self._batches_dumped = 0
+            self._toggle_handlers = {}
+            self._toggles_attempted = {}
+            self._pending_toggle_calls = {}
+            self._renderer_interop_id = 1
             await self._send_start_circuit()
             await asyncio.sleep(0.3)
             await self._send_update_root_components()
@@ -392,8 +409,34 @@ class EnpalWebSocketClient(EnpalApiClient):
                         identifier,
                         str(args[2])[:200] if len(args) > 2 else "",
                     )
+                    if len(args) > 2 and isinstance(args[2], str):
+                        self._try_capture_renderer_interop_id(args[2])
                     await self._send_end_invoke_js(
                         args[0], _JS_CALL_RESULTS.get(identifier, "null")
+                    )
+
+            elif target == "JS.EndInvokeDotNet":
+                # Response to our DispatchEventAsync calls (checkbox toggles)
+                call_id = args[0] if args else None
+                success = args[1] if len(args) > 1 else False
+                try:
+                    call_id_int = int(call_id)
+                except (TypeError, ValueError):
+                    call_id_int = None
+                dom_id = self._pending_toggle_calls.pop(call_id_int, None)
+                if dom_id is None:
+                    continue
+                if success:
+                    _LOGGER.info(
+                        "[Enpal WebSocket] Enabled page toggle '%s'", dom_id
+                    )
+                else:
+                    # Keep the attempted handler id: a retry only happens
+                    # once a later RenderBatch delivers a fresh handler id.
+                    _LOGGER.warning(
+                        "[Enpal WebSocket] Toggling '%s' failed: %s",
+                        dom_id,
+                        args[2] if len(args) > 2 else None,
                     )
 
             elif target == "JS.Error":
@@ -422,6 +465,8 @@ class EnpalWebSocketClient(EnpalApiClient):
             except Exception:
                 _LOGGER.exception("[Enpal WebSocket] RenderBatch decode failed")
             self._log_batch(len(batch_bytes), strings, rows)
+            self._collect_toggle_handlers(bytes(batch_bytes))
+            await self._activate_next_toggle()
 
         # Seed the baseline if we have not scraped yet (a push can arrive
         # before the coordinator's first poll completes).
@@ -630,6 +675,104 @@ class EnpalWebSocketClient(EnpalApiClient):
             sensor["name"], value_clean, unit or "",
         )
         return True
+
+    # ------------------------------------------------------------------
+    # Page toggles (firmware 8.51: "Show unsupported/internal values")
+    # ------------------------------------------------------------------
+
+    def _collect_toggle_handlers(self, raw: bytes) -> None:
+        """Remember event handler IDs of the show-hidden-values checkboxes.
+
+        Handler IDs can change whenever the card re-renders, so the map is
+        refreshed from every RenderBatch. Only toggles of selected sensor
+        groups are collected.
+        """
+        for dom_id, handler_id in extract_event_handlers(raw).items():
+            if not dom_id.startswith(_TOGGLE_ID_PREFIXES):
+                continue
+            group = dom_id.split("_", 1)[1]
+            if group not in self.groups:
+                continue
+            if self._toggle_handlers.get(dom_id) != handler_id:
+                _LOGGER.debug(
+                    "[Enpal WebSocket] Toggle '%s' has handler id %d",
+                    dom_id, handler_id,
+                )
+            self._toggle_handlers[dom_id] = handler_id
+
+    async def _activate_next_toggle(self) -> None:
+        """Click one pending checkbox so hidden sensor rows get rendered.
+
+        One toggle per RenderBatch: each click triggers a re-render that may
+        reassign the remaining handler IDs, and the next batch delivers the
+        fresh ones. A toggle is retried only when a later batch shows a
+        handler id different from the one already clicked.
+        """
+        # Not gated on self.connected: the initial page RenderBatch arrives
+        # while connect() is still running.
+        if self.ws is None or self.ws.closed:
+            return
+        for dom_id, handler_id in self._toggle_handlers.items():
+            if self._toggles_attempted.get(dom_id) == handler_id:
+                continue
+            self._toggles_attempted[dom_id] = handler_id
+            try:
+                await self._send_checkbox_change(dom_id, handler_id)
+            except Exception:
+                _LOGGER.exception(
+                    "[Enpal WebSocket] Sending toggle '%s' failed", dom_id
+                )
+            return
+
+    async def _send_checkbox_change(self, dom_id: str, handler_id: int) -> None:
+        """Dispatch a change event (checked=true) for a checkbox handler."""
+        self._dotnet_call_counter += 1
+        call_id = self._dotnet_call_counter
+        self._pending_toggle_calls[call_id] = dom_id
+
+        event_descriptor = {
+            "eventHandlerId": handler_id,
+            "eventName": "change",
+            "eventFieldInfo": None,
+        }
+        event_args = {"type": "change", "value": True}
+        args_json = json.dumps([event_descriptor, event_args])
+        msg = [
+            1, {}, None,  # fire-and-forget (response comes via JS.EndInvokeDotNet)
+            "BeginInvokeDotNetFromJS",
+            [str(call_id), None, "DispatchEventAsync", self._renderer_interop_id, args_json],
+        ]
+        await self._send_message(msg)
+        _LOGGER.debug(
+            "[Enpal WebSocket] Sent change event for '%s' (handler %d, call %d)",
+            dom_id, handler_id, call_id,
+        )
+
+    def _try_capture_renderer_interop_id(self, args_json_str: str) -> None:
+        """Extract the renderer's DotNet object reference from JS.BeginInvokeJS.
+
+        Blazor calls attachWebRendererInterop with a DotNet object reference
+        (serialized as {"__dotNetObject": N}); DispatchEventAsync must be
+        invoked on that object.
+        """
+        if '"__dotNetObject"' not in args_json_str:
+            return
+        try:
+            parsed = json.loads(args_json_str)
+        except (json.JSONDecodeError, TypeError):
+            return
+        if not isinstance(parsed, list):
+            return
+        for item in parsed:
+            if isinstance(item, dict) and isinstance(item.get("__dotNetObject"), int):
+                obj_id = item["__dotNetObject"]
+                if obj_id > 0:
+                    self._renderer_interop_id = obj_id
+                    _LOGGER.debug(
+                        "[Enpal WebSocket] Captured renderer DotNet object ref: %d",
+                        obj_id,
+                    )
+                    return
 
     @staticmethod
     def _is_numeric_sensor(sensor: Dict) -> bool:

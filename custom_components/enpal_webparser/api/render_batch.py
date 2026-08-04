@@ -204,6 +204,67 @@ def extract_changed_rows(strings: List[str]) -> List[Dict[str, Optional[str]]]:
     return rows
 
 
+def extract_event_handlers(raw: bytes) -> Dict[str, int]:
+    """Map DOM element ids to Blazor event handler IDs.
+
+    Scans the reference-frames section of a RenderBatch for attribute frames
+    (frame type 3, 20 bytes each: type, name string index, value string index,
+    ``int64`` event handler id).  Attributes belong to the element opened by
+    the preceding non-attribute frame, so an ``id`` attribute and an event
+    handler attribute within the same run identify one clickable element.
+
+    Used to find the ``showUnsupported_*`` / ``showInternal_*`` checkboxes on
+    firmware 8.51 so the client can enable them on its own circuit.
+
+    Returns an empty dict on malformed frames - callers treat that as
+    "nothing to click".
+    """
+    strings = parse_render_batch_strings(raw)
+    if not strings or len(raw) < 24:
+        return {}
+    try:
+        footer = struct.unpack_from("<5i", raw, len(raw) - 20)
+        frames_offset, frames_end = footer[1], footer[2]
+        if not (0 <= frames_offset < frames_end <= len(raw)):
+            return {}
+
+        pos = frames_offset
+        count = struct.unpack_from("<i", raw, pos)[0]
+        pos += 4
+
+        handlers: Dict[str, int] = {}
+        current_id: Optional[str] = None
+        current_event = 0
+
+        def _flush():
+            nonlocal current_id, current_event
+            if current_id and current_event > 0:
+                handlers[current_id] = current_event
+            current_id, current_event = None, 0
+
+        for _ in range(count):
+            if pos + 20 > frames_end:
+                break
+            frame_type = struct.unpack_from("<i", raw, pos)[0]
+            if frame_type == 3:  # attribute frame
+                name_idx = struct.unpack_from("<i", raw, pos + 4)[0]
+                value_idx = struct.unpack_from("<i", raw, pos + 8)[0]
+                event_id = struct.unpack_from("<q", raw, pos + 12)[0]
+                name = strings[name_idx] if 0 <= name_idx < len(strings) else None
+                if name == "id" and 0 <= value_idx < len(strings):
+                    current_id = strings[value_idx]
+                elif event_id > 0:
+                    current_event = event_id
+            else:
+                _flush()
+            pos += 20
+        _flush()
+        return handlers
+    except Exception as e:  # noqa: BLE001 - never let a bad frame break the loop
+        _LOGGER.debug("[Enpal RenderBatch] event-handler scan failed: %s", e)
+        return {}
+
+
 def is_patchable_value(value: Optional[str]) -> bool:
     """Whether a raw RenderBatch value should be applied on the fast path.
 
