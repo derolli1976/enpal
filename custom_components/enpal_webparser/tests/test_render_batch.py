@@ -10,6 +10,7 @@ import struct
 
 from custom_components.enpal_webparser.api.render_batch import (
     parse_render_batch_strings,
+    extract_change_handler_ids,
     extract_changed_rows,
     extract_event_handlers,
     is_patchable_value,
@@ -477,6 +478,77 @@ def test_extract_event_handlers_handles_garbage():
     assert extract_event_handlers(b"\x00" * 25) == {}
     handlers = extract_event_handlers(_load_batch())
     assert isinstance(handlers, dict)
+
+
+# Diff batch: the box disposed and recreated all onchange handlers. Fresh ids
+# appear in the same DOM order, but without id attributes.
+_TOGGLE_DIFF_FRAMES = [
+    _attr_frame(7, -1, 142),
+    _attr_frame(7, -1, 143),
+    _attr_frame(7, -1, 144),
+    _attr_frame(7, -1, 199),
+]
+
+
+def test_extract_change_handler_ids_ordered():
+    raw = _build_batch(_TOGGLE_FRAMES, _TOGGLE_STRINGS)
+    assert extract_change_handler_ids(raw) == [42, 43, 44, 99]
+
+    raw_diff = _build_batch(_TOGGLE_DIFF_FRAMES, _TOGGLE_STRINGS)
+    assert extract_change_handler_ids(raw_diff) == [142, 143, 144, 199]
+
+
+def test_extract_change_handler_ids_handles_garbage():
+    assert extract_change_handler_ids(b"") == []
+    assert extract_change_handler_ids(b"\x00" * 25) == []
+
+
+def test_collect_toggle_handlers_remaps_by_position():
+    client = EnpalWebSocketClient("http://box.local", groups=["Battery"])
+
+    # Initial batch: learn ids and positions.
+    client._collect_toggle_handlers(_build_batch(_TOGGLE_FRAMES, _TOGGLE_STRINGS))
+    assert client._toggle_handlers == {
+        "showUnsupported_Battery": 42,
+        "showInternal_Battery": 43,
+    }
+    assert client._toggle_positions == {
+        "showUnsupported_Battery": 0,
+        "showInternal_Battery": 1,
+    }
+    assert client._change_handler_count == 4
+
+    # Diff batch without id attributes: fresh ids are mapped by position.
+    client._collect_toggle_handlers(_build_batch(_TOGGLE_DIFF_FRAMES, _TOGGLE_STRINGS))
+    assert client._toggle_handlers == {
+        "showUnsupported_Battery": 142,
+        "showInternal_Battery": 143,
+    }
+
+
+def test_collect_toggle_handlers_skips_mismatched_diff():
+    client = EnpalWebSocketClient("http://box.local", groups=["Battery"])
+    client._collect_toggle_handlers(_build_batch(_TOGGLE_FRAMES, _TOGGLE_STRINGS))
+
+    # A diff batch with a different handler count must not remap.
+    short_diff = _build_batch(_TOGGLE_DIFF_FRAMES[:2], _TOGGLE_STRINGS)
+    client._collect_toggle_handlers(short_diff)
+    assert client._toggle_handlers["showUnsupported_Battery"] == 42
+
+
+def test_activate_next_toggle_skips_done_and_exhausted():
+    client, sent, _ = _toggle_client_with_fake_ws()
+
+    # Acknowledged toggles are never clicked again.
+    client._toggles_done.add("showUnsupported_Battery")
+    asyncio.run(client._activate_next_toggle())
+    assert sent == []
+
+    # Exhausted toggles are skipped even with a fresh handler id.
+    client._toggles_done.clear()
+    client._toggle_attempts["showUnsupported_Battery"] = 8
+    asyncio.run(client._activate_next_toggle())
+    assert sent == []
 
 
 def test_collect_toggle_handlers_filters_groups():
