@@ -18,6 +18,13 @@
 
 Eine Home Assistant Custom Integration zur lokalen Überwachung von Enpal Solaranlagen. Liest Daten direkt aus der lokalen Weboberfläche der Enpal Box und stellt über 100 Sensoren für Solaranlage, Batterie, Wallbox und Wärmepumpe bereit.
 
+
+
+> [!CAUTION]
+> **Firmware Solar Rel. 8.51:** Enpal hat die lokale Weboberfläche geändert. Nach dem Update der Box liefern viele Sensoren keine Werte mehr, einzelne Werte (z. B. der Batterie-Ladestand) sind vorerst ganz ausgeblendet. Die Reparatur läuft in [Issue #148](https://github.com/derolli1976/enpal/issues/148), dort gibt es auch aktuelle Beta-Versionen (3.0.3bX) zum Testen. Feedback im Issue ist willkommen.
+
+
+
 ---
 
 ## 🆕 Neu in Version 3.0.0
