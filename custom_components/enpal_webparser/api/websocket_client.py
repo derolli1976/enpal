@@ -71,6 +71,14 @@ _BATCH_DUMP_MAX_CHARS = 4000
 # the hidden rows. The DOM id suffix is the group name (showInternal_Battery).
 _TOGGLE_ID_PREFIXES = ("showUnsupported_", "showInternal_")
 
+# Never dispatch a checkbox click earlier than this after StartCircuit: a
+# dispatch into a still-starting circuit crashed it on firmware 8.51.
+_TOGGLE_MIN_CIRCUIT_AGE = 5
+
+# A circuit death within this window after a click points at the click itself;
+# toggle activation is then disabled for the rest of the runtime.
+_TOGGLE_BLAME_WINDOW = 15
+
 
 class EnpalWebSocketClient(EnpalApiClient):
     """WebSocket client for the /deviceMessages Blazor page.
@@ -110,6 +118,8 @@ class EnpalWebSocketClient(EnpalApiClient):
         self._toggle_handlers: Dict[str, int] = {}   # dom id -> event handler id
         self._toggles_attempted: Dict[str, int] = {}  # dom id -> handler id last clicked
         self._pending_toggle_calls: Dict[int, str] = {}  # dotnet call id -> dom id
+        self._toggles_disabled: bool = False  # survives reconnects on purpose
+        self._last_toggle_sent: float = 0
         self._renderer_interop_id: int = 1  # DotNet object ref for DispatchEventAsync
         self._dotnet_call_counter: int = 0
 
@@ -186,11 +196,18 @@ class EnpalWebSocketClient(EnpalApiClient):
             self._toggle_handlers = {}
             self._toggles_attempted = {}
             self._pending_toggle_calls = {}
+            self._last_toggle_sent = 0
             self._renderer_interop_id = 1
             await self._send_start_circuit()
             await asyncio.sleep(0.3)
             await self._send_update_root_components()
             await asyncio.sleep(0.5)
+
+            # The circuit can die during the sleeps above (the box then sends
+            # Close and drops the socket). Without this check the client would
+            # report connected=True with a dead read loop and never recover.
+            if self.ws.closed or (self._read_task and self._read_task.done()):
+                raise ValueError("Circuit closed during startup")
 
             self.connected = True
 
@@ -265,7 +282,13 @@ class EnpalWebSocketClient(EnpalApiClient):
         self.session = None
 
     def is_connected(self) -> bool:
-        return self.connected
+        return (
+            self.connected
+            and self.ws is not None
+            and not self.ws.closed
+            and self._read_task is not None
+            and not self._read_task.done()
+        )
 
     # ------------------------------------------------------------------
     # HTTP scrape helper
@@ -299,6 +322,7 @@ class EnpalWebSocketClient(EnpalApiClient):
                     await self._handle_messages(msg.data)
                 elif msg.type in (aiohttp.WSMsgType.ERROR, aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.CLOSING):
                     _LOGGER.warning("[Enpal WebSocket] Connection lost (type=%s), will reconnect on next poll", msg.type)
+                    self._maybe_disable_toggles("connection lost")
                     break
         except asyncio.CancelledError:
             pass
@@ -377,6 +401,7 @@ class EnpalWebSocketClient(EnpalApiClient):
                     time.monotonic() - self._circuit_started,
                     ", ".join(self._recent_targets) or "none",
                 )
+                self._maybe_disable_toggles("server closed the circuit")
                 self.connected = False
                 continue
 
@@ -444,6 +469,7 @@ class EnpalWebSocketClient(EnpalApiClient):
                     "[Enpal WebSocket] Circuit error reported by the box: %s",
                     args[0] if args else None,
                 )
+                self._maybe_disable_toggles("the box reported a circuit error")
 
     async def _on_render_batch(self, batch_bytes=None):
         """React to a RenderBatch by patching the baseline from the binary diff.
@@ -703,14 +729,22 @@ class EnpalWebSocketClient(EnpalApiClient):
     async def _activate_next_toggle(self) -> None:
         """Click one pending checkbox so hidden sensor rows get rendered.
 
+        Clicks are held back until the circuit is stable: the initial page
+        RenderBatch arrives while connect() is still running, and dispatching
+        into a starting circuit crashed it on firmware 8.51. Handler IDs are
+        collected from that initial batch anyway and clicked from the first
+        batch after connect() finished.
+
         One toggle per RenderBatch: each click triggers a re-render that may
         reassign the remaining handler IDs, and the next batch delivers the
         fresh ones. A toggle is retried only when a later batch shows a
         handler id different from the one already clicked.
         """
-        # Not gated on self.connected: the initial page RenderBatch arrives
-        # while connect() is still running.
+        if self._toggles_disabled or not self.connected:
+            return
         if self.ws is None or self.ws.closed:
+            return
+        if time.monotonic() - self._circuit_started < _TOGGLE_MIN_CIRCUIT_AGE:
             return
         for dom_id, handler_id in self._toggle_handlers.items():
             if self._toggles_attempted.get(dom_id) == handler_id:
@@ -729,6 +763,7 @@ class EnpalWebSocketClient(EnpalApiClient):
         self._dotnet_call_counter += 1
         call_id = self._dotnet_call_counter
         self._pending_toggle_calls[call_id] = dom_id
+        self._last_toggle_sent = time.monotonic()
 
         event_descriptor = {
             "eventHandlerId": handler_id,
@@ -746,6 +781,24 @@ class EnpalWebSocketClient(EnpalApiClient):
         _LOGGER.debug(
             "[Enpal WebSocket] Sent change event for '%s' (handler %d, call %d)",
             dom_id, handler_id, call_id,
+        )
+
+    def _maybe_disable_toggles(self, reason: str) -> None:
+        """Disable toggle activation when a click likely killed the circuit.
+
+        The flag survives reconnects, so after one failed attempt the client
+        behaves like 3.0.3b6 for the rest of the runtime instead of crashing
+        the circuit on every reconnect.
+        """
+        if self._toggles_disabled or not self._last_toggle_sent:
+            return
+        if time.monotonic() - self._last_toggle_sent > _TOGGLE_BLAME_WINDOW:
+            return
+        self._toggles_disabled = True
+        _LOGGER.warning(
+            "[Enpal WebSocket] Disabling page-toggle activation: %s within %ds "
+            "after a checkbox click. Hidden rows (e.g. battery SOC) stay off.",
+            reason, _TOGGLE_BLAME_WINDOW,
         )
 
     def _try_capture_renderer_interop_id(self, args_json_str: str) -> None:

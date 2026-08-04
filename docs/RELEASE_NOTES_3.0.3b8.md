@@ -1,10 +1,10 @@
-# 3.0.3b7 - Firmware 8.51 (Beta)
+# 3.0.3b8 - Firmware 8.51 (Beta)
 
 Enpal hat mit **Solar Rel. 8.51** die Seite `/deviceMessages` umgebaut. Auf Boxen mit dieser Firmware zeigen viele Sensoren seitdem Fehlertexte statt Messwerten an. Diese Beta behebt das.
 
 Getestet wurde gegen zwei Seitenstände: `8.51.0-950631` und `8.51.0-955735`.
 
-Gegenüber 3.0.3b6 aktiviert der WebSocket-Modus jetzt die Seitenschalter "Show unsupported values" und "Show internal values" auf seiner eigenen Verbindung. Damit überträgt die Box auch die bisher ausgeblendeten Zeilen, darunter den Batterie-Ladestand `Energy.Battery.Charge.Level`.
+Gegenüber 3.0.3b7 behebt diese Beta zwei Fehler, die zusammen dazu führen konnten, dass nach dem Start dauerhaft nur die vier "Site Data"-Sensoren ankamen und alle anderen auf `unavailable` standen.
 
 ---
 
@@ -103,18 +103,31 @@ Der HTML-Modus liefert auf betroffenen Boxen weiterhin nur die Werte aus "Site D
 
 ---
 
-## � Batterie-Ladestand kommt zurück
+## 🐛 Behoben gegenüber b7: Nur noch 4 Sensoren nach dem Start
+
+b7 hat die neuen Seitenschalter direkt beim Verbindungsaufbau angeklickt. Das erste Datenpaket der Box trifft aber ein, während der Verbindungsaufbau noch läuft. Ein Klick in diesen halb gestarteten Circuit hat ihn zum Absturz gebracht.
+
+Dazu kam ein zweiter, älterer Fehler: Stirbt der Circuit während des Verbindungsaufbaus, hat die Integration die Verbindung trotzdem als aufgebaut markiert. Der HTTP-Abruf lief weiter (daher die vier "Site Data"-Sensoren alle 60 Sekunden), aber es kamen nie wieder Datenpakete an, und es gab keinen neuen Verbindungsversuch.
+
+Beides ist behoben:
+
+- Ein Circuit-Abbruch während des Verbindungsaufbaus wird erkannt. Der Aufbau schlägt dann sauber fehl und wird beim nächsten Abruf wiederholt.
+- Eine tote Verbindung (geschlossener Socket oder beendete Leseschleife) gilt nicht mehr als verbunden. Der nächste Abruf baut sie neu auf.
+
+---
+
+## 🔋 Batterie-Ladestand kommt zurück
 
 Der Ladestand `Energy.Battery.Charge.Level` fehlte auf 8.51 komplett. Die Gruppe "Battery" enthielt nur noch die maximale AC-Leistung und die Seriennummern.
 
 Zwei Nutzer haben die Ursache eingegrenzt: Die Seite hat pro Gerätekarte neue Schalter "Show unsupported values" und "Show internal values". Der Ladestand liegt dahinter. Die Schalter sind ab Werk aus, und ausgeblendete Zeilen werden nicht übertragen. Sie gelten außerdem nur für die jeweilige Verbindung. Ein Aktivieren im Browser hilft der Integration also nicht, weil deren Verbindung ein eigener Blazor-Circuit ist.
 
-Diese Beta aktiviert die Schalter selbst:
+Die Integration aktiviert die Schalter deshalb selbst:
 
-- Nach dem Verbindungsaufbau sucht die Integration in den Datenpaketen die Schalter der ausgewählten Sensor-Gruppen.
-- Jeder Schalter wird über denselben Mechanismus angeklickt, mit dem auch die Wallbox-Buttons bedient werden.
-- Pro Datenpaket wird ein Schalter gesetzt. So bleiben die Klicks auch dann gültig, wenn die Box die Seite zwischendurch neu aufbaut.
+- Die Schalter werden aus dem ersten Datenpaket der Box erkannt, aber erst angeklickt, wenn die Verbindung stabil steht (frühestens 5 Sekunden nach dem Circuit-Start).
+- Jeder Schalter wird über denselben Mechanismus angeklickt, mit dem auch die Wallbox-Buttons bedient werden. Pro Datenpaket wird ein Schalter gesetzt.
 - Erfolg und Fehlschläge stehen im Protokoll (`Enabled page toggle 'showInternal_Battery'`).
+- Neu als Sicherung: Bricht der Circuit kurz nach einem Klick ab, deaktiviert die Integration die Schalter-Aktivierung für den Rest der Laufzeit und verhält sich wie b6. Im Protokoll steht dann `Disabling page-toggle activation`.
 
 Sobald die ausgeblendeten Zeilen übertragen werden, legt die Sensor-Erzeugung aus b6 die zugehörigen Entitäten automatisch an. Für `Energy.Battery.Charge.Level` bleibt die Entity-ID `sensor.battery_energy_battery_charge_level` erhalten.
 
@@ -125,7 +138,7 @@ Sobald die ausgeblendeten Zeilen übertragen werden, legt die Sensor-Erzeugung a
 1. In HACS → **Enpal Solar** öffnen
 2. Auf die **drei Punkte** (⋮) klicken → **Version auswählen**
 3. **Beta-Versionen einblenden** aktivieren
-4. Version **3.0.3b7** auswählen und installieren
+4. Version **3.0.3b8** auswählen und installieren
 5. Home Assistant **neu starten**
 
 Bestehende Einstellungen bleiben erhalten. Ein Neuaufsetzen der Integration ist nicht nötig.
