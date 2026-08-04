@@ -1,0 +1,46 @@
+name: Build WebSocket Sniffer
+
+# Builds standalone executables of scripts/sniff_websocket.py so users can run
+# the diagnostic tool without Python or git. Trigger manually, then download
+# the artifacts from the workflow run.
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: enpal-sniffer-windows
+            data_sep: ";"
+          - os: ubuntu-latest
+            artifact: enpal-sniffer-linux
+            data_sep: ":"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install aiohttp msgpack beautifulsoup4 pyinstaller
+
+      - name: Build executable
+        run: >
+          pyinstaller --onefile --name enpal-sniffer
+          --hidden-import msgpack
+          --add-data "custom_components/enpal_webparser/api/protocol.py${{ matrix.data_sep }}api"
+          --add-data "custom_components/enpal_webparser/api/render_batch.py${{ matrix.data_sep }}api"
+          scripts/sniff_websocket.py
+
+      - name: Smoke test
+        run: ./dist/enpal-sniffer --help
+        shell: bash
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/enpal-sniffer*
