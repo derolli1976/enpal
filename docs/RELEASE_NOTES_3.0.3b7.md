@@ -1,10 +1,10 @@
-# 3.0.3b6 - Firmware 8.51 (Beta)
+# 3.0.3b7 - Firmware 8.51 (Beta)
 
 Enpal hat mit **Solar Rel. 8.51** die Seite `/deviceMessages` umgebaut. Auf Boxen mit dieser Firmware zeigen viele Sensoren seitdem Fehlertexte statt Messwerten an. Diese Beta behebt das.
 
 Getestet wurde gegen zwei Seitenstände: `8.51.0-950631` und `8.51.0-955735`.
 
-Gegenüber 3.0.3b5 liest der WebSocket-Modus die Sensordaten jetzt direkt aus den Datenpaketen der Box. Damit füllen sich die Sensoren auch auf Boxen, deren HTTP-Abruf leer bleibt.
+Gegenüber 3.0.3b6 aktiviert der WebSocket-Modus jetzt die Seitenschalter "Show unsupported values" und "Show internal values" auf seiner eigenen Verbindung. Damit überträgt die Box auch die bisher ausgeblendeten Zeilen, darunter den Batterie-Ladestand `Energy.Battery.Charge.Level`.
 
 ---
 
@@ -103,11 +103,20 @@ Der HTML-Modus liefert auf betroffenen Boxen weiterhin nur die Werte aus "Site D
 
 ---
 
-## 🔍 Bekannte Einschränkung
+## � Batterie-Ladestand kommt zurück
 
-Der Batterie-Ladestand `Energy.Battery.Charge.Level` fehlt auf beiden getesteten 8.51-Seiten komplett. Die Gruppe "Battery" enthält nur noch die maximale AC-Leistung und die Seriennummern.
+Der Ladestand `Energy.Battery.Charge.Level` fehlte auf 8.51 komplett. Die Gruppe "Battery" enthielt nur noch die maximale AC-Leistung und die Seriennummern.
 
-Die Seite hat neue Schalter "Show unsupported values" und "Show internal values". Sie sind ab Werk nicht gesetzt, und ausgeblendete Zeilen stehen nicht im Quelltext. Ob der Ladestand dahinter liegt oder wirklich entfallen ist, ist weiter offen. Taucht er in den Datenpaketen der Box auf, legt diese Beta den Sensor automatisch wieder an.
+Zwei Nutzer haben die Ursache eingegrenzt: Die Seite hat pro Gerätekarte neue Schalter "Show unsupported values" und "Show internal values". Der Ladestand liegt dahinter. Die Schalter sind ab Werk aus, und ausgeblendete Zeilen werden nicht übertragen. Sie gelten außerdem nur für die jeweilige Verbindung. Ein Aktivieren im Browser hilft der Integration also nicht, weil deren Verbindung ein eigener Blazor-Circuit ist.
+
+Diese Beta aktiviert die Schalter selbst:
+
+- Nach dem Verbindungsaufbau sucht die Integration in den Datenpaketen die Schalter der ausgewählten Sensor-Gruppen.
+- Jeder Schalter wird über denselben Mechanismus angeklickt, mit dem auch die Wallbox-Buttons bedient werden.
+- Pro Datenpaket wird ein Schalter gesetzt. So bleiben die Klicks auch dann gültig, wenn die Box die Seite zwischendurch neu aufbaut.
+- Erfolg und Fehlschläge stehen im Protokoll (`Enabled page toggle 'showInternal_Battery'`).
+
+Sobald die ausgeblendeten Zeilen übertragen werden, legt die Sensor-Erzeugung aus b6 die zugehörigen Entitäten automatisch an. Für `Energy.Battery.Charge.Level` bleibt die Entity-ID `sensor.battery_energy_battery_charge_level` erhalten.
 
 ---
 
@@ -116,7 +125,7 @@ Die Seite hat neue Schalter "Show unsupported values" und "Show internal values"
 1. In HACS → **Enpal Solar** öffnen
 2. Auf die **drei Punkte** (⋮) klicken → **Version auswählen**
 3. **Beta-Versionen einblenden** aktivieren
-4. Version **3.0.3b6** auswählen und installieren
+4. Version **3.0.3b7** auswählen und installieren
 5. Home Assistant **neu starten**
 
 Bestehende Einstellungen bleiben erhalten. Ein Neuaufsetzen der Integration ist nicht nötig.
