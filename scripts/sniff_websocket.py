@@ -22,13 +22,20 @@ Output:
   * File   : poc/ws_sniff_<timestamp>.jsonl   (one JSON object per event)
   * File   : poc/ws_sniff_<timestamp>_deviceMessages_<n>.html  (raw HTML snapshots)
 
+Firmware 8.51: the sniffer answers Radzen/MudBlazor JS calls with the same
+literals as the integration (otherwise the circuit dies) and can optionally
+test the "Show unsupported/internal values" checkbox toggles that reveal
+hidden rows such as the battery SOC (--click-toggles).
+
 Usage:
     python scripts/sniff_websocket.py <enpal_box_ip_or_url> [--seconds 120]
                                       [--no-html] [--outdir poc]
+                                      [--click-toggles] [--toggle-delay 10]
 
 Examples:
     python scripts/sniff_websocket.py 192.168.1.50
     python scripts/sniff_websocket.py http://192.168.1.50 --seconds 300
+    python scripts/sniff_websocket.py 192.168.1.50 --seconds 180 --click-toggles
 
 Only depends on: aiohttp, msgpack, beautifulsoup4 (all already in requirements).
 The Blazor protocol helpers are loaded directly from the integration's
@@ -56,23 +63,40 @@ from bs4 import BeautifulSoup
 # Load the Blazor protocol helpers from the integration (no HA dependencies).
 # ---------------------------------------------------------------------------
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-_PROTOCOL_PATH = _REPO_ROOT / "custom_components" / "enpal_webparser" / "api" / "protocol.py"
+if getattr(sys, "frozen", False):
+    # PyInstaller bundle: the api modules are shipped as data files.
+    _API_DIR = Path(getattr(sys, "_MEIPASS")) / "api"
+else:
+    _API_DIR = _REPO_ROOT / "custom_components" / "enpal_webparser" / "api"
 
 
-def _load_protocol():
-    spec = importlib.util.spec_from_file_location("enpal_protocol", _PROTOCOL_PATH)
+def _load_module(name: str, path: Path):
+    spec = importlib.util.spec_from_file_location(name, path)
     if spec is None or spec.loader is None:
-        raise RuntimeError(f"Could not load protocol module from {_PROTOCOL_PATH}")
+        raise RuntimeError(f"Could not load module from {path}")
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
-_protocol = _load_protocol()
+_protocol = _load_module("enpal_protocol", _API_DIR / "protocol.py")
 encode_message = _protocol.encode_message
 decode_messages = _protocol.decode_messages
 extract_blazor_components = _protocol.extract_blazor_components
 extract_application_state = _protocol.extract_application_state
+
+_render_batch = _load_module("enpal_render_batch", _API_DIR / "render_batch.py")
+extract_event_handlers = _render_batch.extract_event_handlers
+
+# Mirrors websocket_client._JS_CALL_RESULTS: answering these with null crashes
+# the circuit on firmware 8.51.
+_JS_CALL_RESULTS = {
+    "mudpopoverHelper.countProviders": "1",
+    "Radzen.createChart": '{"left":0,"top":0,"width":800,"height":400}',
+    "Radzen.createResizable": '{"left":0,"top":0,"width":800,"height":400}',
+}
+
+_TOGGLE_ID_PREFIXES = ("showUnsupported_", "showInternal_")
 
 
 _LOGGER = logging.getLogger("enpal_sniffer")
@@ -169,10 +193,19 @@ def _diff_snapshots(
 
 
 class EnpalSniffer:
-    def __init__(self, base_url: str, outdir: Path, capture_html: bool = True):
+    def __init__(
+        self,
+        base_url: str,
+        outdir: Path,
+        capture_html: bool = True,
+        click_toggles: bool = False,
+        toggle_delay: float = 10.0,
+    ):
         self.base_url = base_url
         self.outdir = outdir
         self.capture_html = capture_html
+        self.click_toggles = click_toggles
+        self.toggle_delay = toggle_delay
 
         self.session: Optional[aiohttp.ClientSession] = None
         self.ws: Optional[aiohttp.ClientWebSocketResponse] = None
@@ -190,6 +223,14 @@ class EnpalSniffer:
         self._last_snapshot: Dict[str, Dict[str, Any]] = {}
         self._render_batch_count = 0
         self._start_time = time.monotonic()
+
+        # Toggle-click test state (mirrors websocket_client).
+        self._toggle_handlers: Dict[str, int] = {}
+        self._toggles_attempted: Dict[str, int] = {}
+        self._pending_toggle_calls: Dict[int, str] = {}
+        self._renderer_interop_id = 1
+        self._dotnet_call_counter = 0
+        self._last_toggle_sent: Optional[float] = None
 
     # ------------------------------------------------------------------
     # Event recording
@@ -302,8 +343,8 @@ class EnpalSniffer:
     async def _send_on_render_completed(self, batch_id: int) -> None:
         await self._send([1, {}, None, "OnRenderCompleted", [batch_id, None]])
 
-    async def _send_end_invoke_js(self, task_id: int) -> None:
-        result_json = f"[{task_id},true,null]"
+    async def _send_end_invoke_js(self, task_id: int, result: str = "null") -> None:
+        result_json = f"[{task_id},true,{result}]"
         await self._send([1, {}, None, "EndInvokeJSFromDotNet", [task_id, True, result_json]])
 
     async def _send_ping(self) -> None:
@@ -395,6 +436,8 @@ class EnpalSniffer:
                                 bytes(payload)
                             ).decode("ascii")
                             entry["render_batch_payload_bytes"] = len(payload)
+                            if self.click_toggles:
+                                self._collect_toggle_handlers(bytes(payload))
                         entry["render_batch_id"] = batch_id
                         try:
                             await self._send_on_render_completed(args[0])
@@ -402,15 +445,28 @@ class EnpalSniffer:
                             pass
                 elif target == "JS.BeginInvokeJS":
                     if args:
+                        identifier = args[1] if len(args) > 1 else ""
+                        if len(args) > 2 and isinstance(args[2], str):
+                            self._try_capture_renderer_interop_id(args[2])
                         try:
-                            await self._send_end_invoke_js(args[0])
+                            await self._send_end_invoke_js(
+                                args[0], _JS_CALL_RESULTS.get(identifier, "null")
+                            )
                         except Exception:  # noqa: BLE001
                             pass
+                elif target == "JS.EndInvokeDotNet":
+                    self._handle_end_invoke_dotnet(args, entry)
+                elif target == "JS.Error":
+                    _LOGGER.warning("JS.Error from box: %s", args[0] if args else None)
+                    self._log_toggle_blame("JS.Error")
 
             elif msg_type == 3:
                 entry["completion"] = _stringify(msg[1:])
             elif msg_type == 7:
-                entry["close_error"] = _stringify(msg[1] if len(msg) > 1 else None)
+                close_error = _stringify(msg[1] if len(msg) > 1 else None)
+                entry["close_error"] = close_error
+                _LOGGER.warning("Close message from box: %s", close_error)
+                self._log_toggle_blame("Close")
 
             decoded_summary.append(entry)
 
@@ -432,6 +488,115 @@ class EnpalSniffer:
         if has_render_batch:
             self._render_batch_count += 1
             await self._scrape_and_diff()
+            if self.click_toggles:
+                await self._activate_next_toggle()
+
+    # ------------------------------------------------------------------
+    # Page-toggle click test (mirrors websocket_client)
+    # ------------------------------------------------------------------
+    def _collect_toggle_handlers(self, batch_bytes: bytes) -> None:
+        try:
+            handlers = extract_event_handlers(batch_bytes)
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.warning("extract_event_handlers failed: %s", exc)
+            return
+        for dom_id, handler_id in handlers.items():
+            if not dom_id.startswith(_TOGGLE_ID_PREFIXES):
+                continue
+            if self._toggle_handlers.get(dom_id) != handler_id:
+                _LOGGER.info("Toggle handler found: %s -> event handler %d", dom_id, handler_id)
+                self._record({"type": "toggle_handler", "dom_id": dom_id, "handler_id": handler_id})
+            self._toggle_handlers[dom_id] = handler_id
+
+    async def _activate_next_toggle(self) -> None:
+        if self.ws is None or self.ws.closed:
+            return
+        if time.monotonic() - self._start_time < self.toggle_delay:
+            return
+        for dom_id, handler_id in self._toggle_handlers.items():
+            if self._toggles_attempted.get(dom_id) == handler_id:
+                continue
+            self._toggles_attempted[dom_id] = handler_id
+            await self._send_checkbox_change(dom_id, handler_id)
+            return
+
+    async def _send_checkbox_change(self, dom_id: str, handler_id: int) -> None:
+        self._dotnet_call_counter += 1
+        call_id = self._dotnet_call_counter
+        self._pending_toggle_calls[call_id] = dom_id
+        self._last_toggle_sent = time.monotonic()
+
+        event_descriptor = {
+            "eventHandlerId": handler_id,
+            "eventName": "change",
+            "eventFieldInfo": None,
+        }
+        event_args = {"type": "change", "value": True}
+        args_json = json.dumps([event_descriptor, event_args])
+        msg = [
+            1, {}, None,
+            "BeginInvokeDotNetFromJS",
+            [str(call_id), None, "DispatchEventAsync", self._renderer_interop_id, args_json],
+        ]
+        await self._send(msg)
+        _LOGGER.info(
+            "CLICK sent: '%s' (handler %d, call %d, interop %d)",
+            dom_id, handler_id, call_id, self._renderer_interop_id,
+        )
+        self._record({
+            "type": "toggle_click",
+            "dom_id": dom_id,
+            "handler_id": handler_id,
+            "call_id": call_id,
+            "renderer_interop_id": self._renderer_interop_id,
+        })
+
+    def _handle_end_invoke_dotnet(self, args: Any, entry: Dict[str, Any]) -> None:
+        call_id = args[0] if args else None
+        success = args[1] if len(args) > 1 else False
+        try:
+            call_id_int = int(call_id)
+        except (TypeError, ValueError):
+            call_id_int = None
+        dom_id = self._pending_toggle_calls.pop(call_id_int, None)
+        entry["toggle_dom_id"] = dom_id
+        entry["toggle_success"] = bool(success)
+        if dom_id is None:
+            return
+        if success:
+            _LOGGER.info("CLICK OK: toggle '%s' accepted by the box", dom_id)
+        else:
+            _LOGGER.warning(
+                "CLICK FAILED: toggle '%s' rejected: %s",
+                dom_id, args[2] if len(args) > 2 else None,
+            )
+
+    def _try_capture_renderer_interop_id(self, args_json_str: str) -> None:
+        if '"__dotNetObject"' not in args_json_str:
+            return
+        try:
+            parsed = json.loads(args_json_str)
+        except (json.JSONDecodeError, TypeError):
+            return
+        if not isinstance(parsed, list):
+            return
+        for item in parsed:
+            if isinstance(item, dict) and isinstance(item.get("__dotNetObject"), int):
+                obj_id = item["__dotNetObject"]
+                if obj_id > 0:
+                    self._renderer_interop_id = obj_id
+                    _LOGGER.info("Renderer DotNet object ref captured: %d", obj_id)
+                    return
+
+    def _log_toggle_blame(self, reason: str) -> None:
+        if not self._last_toggle_sent:
+            return
+        elapsed = time.monotonic() - self._last_toggle_sent
+        _LOGGER.warning(
+            "%s arrived %.1fs after the last toggle click - the click likely killed the circuit",
+            reason, elapsed,
+        )
+        self._record({"type": "toggle_blame", "reason": reason, "seconds_after_click": round(elapsed, 3)})
 
     # ------------------------------------------------------------------
     # HTTP scrape + diff
@@ -540,9 +705,16 @@ async def _main_async(args: argparse.Namespace) -> int:
     base_url = _normalize_base_url(args.target)
     outdir = Path(args.outdir)
     if not outdir.is_absolute():
-        outdir = _REPO_ROOT / outdir
+        base = Path.cwd() if getattr(sys, "frozen", False) else _REPO_ROOT
+        outdir = base / outdir
 
-    sniffer = EnpalSniffer(base_url, outdir, capture_html=not args.no_html)
+    sniffer = EnpalSniffer(
+        base_url,
+        outdir,
+        capture_html=not args.no_html,
+        click_toggles=args.click_toggles,
+        toggle_delay=args.toggle_delay,
+    )
     try:
         await sniffer.connect()
         await sniffer.run(args.seconds)
@@ -567,6 +739,11 @@ def main() -> int:
                         help="Output directory (default: poc)")
     parser.add_argument("--no-html", action="store_true",
                         help="Do not save HTML snapshots")
+    parser.add_argument("--click-toggles", action="store_true",
+                        help="Click the 'Show unsupported/internal values' checkboxes "
+                             "after --toggle-delay seconds and record the outcome")
+    parser.add_argument("--toggle-delay", type=float, default=10,
+                        help="Seconds to wait before the first toggle click (default: 10)")
     parser.add_argument("-v", "--verbose", action="store_true",
                         help="Enable debug logging")
     args = parser.parse_args()

@@ -14,3 +14,8 @@ __pycache__/
 # PoC / sniffer output may contain personal data (box IP, serials, sensor values)
 poc/*
 !poc/.gitkeep
+
+# PyInstaller (scripts/sniff_websocket.py local builds)
+build/
+dist/
+*.spec

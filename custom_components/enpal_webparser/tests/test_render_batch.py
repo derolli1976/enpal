@@ -505,6 +505,8 @@ def test_activate_next_toggle_one_per_batch_and_retry():
         closed = False
 
     client.ws = FakeWS()
+    client.connected = True
+    client._circuit_started = 0.0  # circuit old enough for clicks
     client._toggle_handlers = {
         "showUnsupported_Battery": 42,
         "showInternal_Battery": 43,
@@ -530,3 +532,96 @@ def test_activate_next_toggle_one_per_batch_and_retry():
     asyncio.run(client._activate_next_toggle())
     assert len(sent) == 3
     assert '"eventHandlerId": 52' in sent[2][4][4]
+
+
+def _toggle_client_with_fake_ws():
+    import time
+
+    client = EnpalWebSocketClient("http://box.local", groups=["Battery"])
+    sent = []
+
+    async def fake_send(msg):
+        sent.append(msg)
+
+    client._send_message = fake_send
+
+    class FakeWS:
+        closed = False
+
+    client.ws = FakeWS()
+    client.connected = True
+    client._circuit_started = 0.0
+    client._toggle_handlers = {"showUnsupported_Battery": 42}
+    return client, sent, time
+
+
+def test_activate_next_toggle_waits_for_stable_circuit():
+    client, sent, time_mod = _toggle_client_with_fake_ws()
+
+    # Not connected yet (initial batch during connect()) -> no click.
+    client.connected = False
+    asyncio.run(client._activate_next_toggle())
+    assert sent == []
+
+    # Connected, but circuit younger than the minimum age -> no click.
+    client.connected = True
+    client._circuit_started = time_mod.monotonic()
+    asyncio.run(client._activate_next_toggle())
+    assert sent == []
+
+    # Circuit old enough -> click goes out.
+    client._circuit_started = 0.0
+    asyncio.run(client._activate_next_toggle())
+    assert len(sent) == 1
+
+
+def test_activate_next_toggle_respects_disable_flag():
+    client, sent, _ = _toggle_client_with_fake_ws()
+    client._toggles_disabled = True
+    asyncio.run(client._activate_next_toggle())
+    assert sent == []
+
+
+def test_maybe_disable_toggles_blames_recent_click_only():
+    import time
+
+    client = EnpalWebSocketClient("http://box.local", groups=["Battery"])
+
+    # No click sent yet -> a circuit death is not our fault.
+    client._maybe_disable_toggles("server closed the circuit")
+    assert client._toggles_disabled is False
+
+    # Click long ago -> still not our fault.
+    client._last_toggle_sent = time.monotonic() - 300
+    client._maybe_disable_toggles("server closed the circuit")
+    assert client._toggles_disabled is False
+
+    # Click moments ago -> disable for the rest of the runtime.
+    client._last_toggle_sent = time.monotonic()
+    client._maybe_disable_toggles("server closed the circuit")
+    assert client._toggles_disabled is True
+
+
+def test_is_connected_detects_dead_socket():
+    client = EnpalWebSocketClient("http://box.local", groups=["Battery"])
+
+    class FakeTask:
+        def done(self):
+            return False
+
+    class FakeWS:
+        closed = False
+
+    client.connected = True
+    client.ws = FakeWS()
+    client._read_task = FakeTask()
+    assert client.is_connected() is True
+
+    # A closed socket or finished read loop means the circuit is dead even
+    # though connect() once succeeded.
+    client.ws.closed = True
+    assert client.is_connected() is False
+
+    client.ws.closed = False
+    client._read_task.done = lambda: True
+    assert client.is_connected() is False
