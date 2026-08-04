@@ -1,10 +1,10 @@
-# 3.0.3b8 - Firmware 8.51 (Beta)
+# 3.0.3b9 - Firmware 8.51 (Beta)
 
 Enpal hat mit **Solar Rel. 8.51** die Seite `/deviceMessages` umgebaut. Auf Boxen mit dieser Firmware zeigen viele Sensoren seitdem Fehlertexte statt Messwerten an. Diese Beta behebt das.
 
 Getestet wurde gegen zwei Seitenstände: `8.51.0-950631` und `8.51.0-955735`.
 
-Gegenüber 3.0.3b7 behebt diese Beta zwei Fehler, die zusammen dazu führen konnten, dass nach dem Start dauerhaft nur die vier "Site Data"-Sensoren ankamen und alle anderen auf `unavailable` standen.
+Gegenüber 3.0.3b8 behebt diese Beta einen Fehler, durch den die Seitenschalter für die ausgeblendeten Werte (unter anderem der Batterie-Ladestand) nie erfolgreich angeklickt wurden.
 
 ---
 
@@ -116,7 +116,19 @@ Beides ist behoben:
 
 ---
 
-## 🔋 Batterie-Ladestand kommt zurück
+## � Behoben gegenüber b8: Schalter-Klicks liefen ins Leere
+
+Eine Aufzeichnung des kompletten Nachrichtenverkehrs (Danke an den Tester aus Issue #148) hat die Ursache gezeigt: Die Box verwirft die internen Klick-Kennungen aller Schalter bei jeder Aktualisierung der Seite und vergibt neue. Das passiert etwa alle 1,5 bis 5 Sekunden. b8 hat die Kennungen aus dem ersten Datenpaket gespeichert und Sekunden später damit geklickt. Zu diesem Zeitpunkt waren sie längst ungültig. Die Box hat jeden Klick mit einer Fehlermeldung abgelehnt.
+
+Wichtig: Die Aufzeichnung zeigt auch, dass die abgelehnten Klicks harmlos sind. Die Verbindung lief dabei über Minuten stabil weiter.
+
+b9 merkt sich statt der Kennung die Position jedes Schalters auf der Seite. Aus jedem Datenpaket werden die frischen Kennungen ausgelesen und über die Position den Schaltern zugeordnet. Geklickt wird immer mit der aktuellen Kennung. Wird ein Klick trotzdem abgelehnt, folgt ein neuer Versuch mit der nächsten frischen Kennung, maximal acht Mal pro Schalter. Ein angenommener Klick wird nicht wiederholt.
+
+Die Zuordnung wurde offline gegen die komplette Aufzeichnung geprüft (204 Datenpakete, über 5 Minuten). Sie trifft in jedem Paket die gerade gültigen Kennungen.
+
+---
+
+## �🔋 Batterie-Ladestand kommt zurück
 
 Der Ladestand `Energy.Battery.Charge.Level` fehlte auf 8.51 komplett. Die Gruppe "Battery" enthielt nur noch die maximale AC-Leistung und die Seriennummern.
 
@@ -124,10 +136,10 @@ Zwei Nutzer haben die Ursache eingegrenzt: Die Seite hat pro Gerätekarte neue S
 
 Die Integration aktiviert die Schalter deshalb selbst:
 
-- Die Schalter werden aus dem ersten Datenpaket der Box erkannt, aber erst angeklickt, wenn die Verbindung stabil steht (frühestens 5 Sekunden nach dem Circuit-Start).
+- Die Schalter und ihre Position auf der Seite werden aus dem ersten Datenpaket der Box erkannt. Geklickt wird erst, wenn die Verbindung stabil steht (frühestens 5 Sekunden nach dem Circuit-Start), und immer mit der aktuellen Klick-Kennung aus dem letzten Datenpaket.
 - Jeder Schalter wird über denselben Mechanismus angeklickt, mit dem auch die Wallbox-Buttons bedient werden. Pro Datenpaket wird ein Schalter gesetzt.
 - Erfolg und Fehlschläge stehen im Protokoll (`Enabled page toggle 'showInternal_Battery'`).
-- Neu als Sicherung: Bricht der Circuit kurz nach einem Klick ab, deaktiviert die Integration die Schalter-Aktivierung für den Rest der Laufzeit und verhält sich wie b6. Im Protokoll steht dann `Disabling page-toggle activation`.
+- Als Sicherung aus b8: Bricht der Circuit kurz nach einem Klick ab, deaktiviert die Integration die Schalter-Aktivierung für den Rest der Laufzeit und verhält sich wie b6. Im Protokoll steht dann `Disabling page-toggle activation`.
 
 Sobald die ausgeblendeten Zeilen übertragen werden, legt die Sensor-Erzeugung aus b6 die zugehörigen Entitäten automatisch an. Für `Energy.Battery.Charge.Level` bleibt die Entity-ID `sensor.battery_energy_battery_charge_level` erhalten.
 
@@ -138,7 +150,7 @@ Sobald die ausgeblendeten Zeilen übertragen werden, legt die Sensor-Erzeugung a
 1. In HACS → **Enpal Solar** öffnen
 2. Auf die **drei Punkte** (⋮) klicken → **Version auswählen**
 3. **Beta-Versionen einblenden** aktivieren
-4. Version **3.0.3b8** auswählen und installieren
+4. Version **3.0.3b9** auswählen und installieren
 5. Home Assistant **neu starten**
 
 Bestehende Einstellungen bleiben erhalten. Ein Neuaufsetzen der Integration ist nicht nötig.

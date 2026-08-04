@@ -30,6 +30,7 @@ from .protocol import (
 )
 from .render_batch import (
     parse_render_batch_strings,
+    extract_change_handler_ids,
     extract_changed_rows,
     extract_event_handlers,
     is_patchable_value,
@@ -79,6 +80,11 @@ _TOGGLE_MIN_CIRCUIT_AGE = 5
 # toggle activation is then disabled for the rest of the runtime.
 _TOGGLE_BLAME_WINDOW = 15
 
+# The box disposes and recreates every checkbox handler on each re-render
+# (~every 2-5 s), so a click can lose the race against the next batch and
+# fail harmlessly. Give up on a toggle after this many failed clicks.
+_TOGGLE_MAX_ATTEMPTS = 8
+
 
 class EnpalWebSocketClient(EnpalApiClient):
     """WebSocket client for the /deviceMessages Blazor page.
@@ -116,6 +122,10 @@ class EnpalWebSocketClient(EnpalApiClient):
         self._batches_dumped: int = 0
         # "Show unsupported/internal values" checkboxes (firmware 8.51)
         self._toggle_handlers: Dict[str, int] = {}   # dom id -> event handler id
+        self._toggle_positions: Dict[str, int] = {}  # dom id -> index among onchange handlers
+        self._change_handler_count: int = 0  # onchange handlers in the initial batch
+        self._toggles_done: set = set()  # dom ids acknowledged by the box
+        self._toggle_attempts: Dict[str, int] = {}  # dom id -> failed click count
         self._toggles_attempted: Dict[str, int] = {}  # dom id -> handler id last clicked
         self._pending_toggle_calls: Dict[int, str] = {}  # dotnet call id -> dom id
         self._toggles_disabled: bool = False  # survives reconnects on purpose
@@ -194,6 +204,10 @@ class EnpalWebSocketClient(EnpalApiClient):
             self._circuit_started = time.monotonic()
             self._batches_dumped = 0
             self._toggle_handlers = {}
+            self._toggle_positions = {}
+            self._change_handler_count = 0
+            self._toggles_done = set()
+            self._toggle_attempts = {}
             self._toggles_attempted = {}
             self._pending_toggle_calls = {}
             self._last_toggle_sent = 0
@@ -452,17 +466,28 @@ class EnpalWebSocketClient(EnpalApiClient):
                 if dom_id is None:
                     continue
                 if success:
+                    self._toggles_done.add(dom_id)
                     _LOGGER.info(
                         "[Enpal WebSocket] Enabled page toggle '%s'", dom_id
                     )
                 else:
-                    # Keep the attempted handler id: a retry only happens
-                    # once a later RenderBatch delivers a fresh handler id.
-                    _LOGGER.warning(
-                        "[Enpal WebSocket] Toggling '%s' failed: %s",
-                        dom_id,
-                        args[2] if len(args) > 2 else None,
-                    )
+                    # Expected race: the box disposed the handler id before our
+                    # click arrived. The next batch delivers a fresh id.
+                    attempts = self._toggle_attempts.get(dom_id, 0)
+                    if attempts >= _TOGGLE_MAX_ATTEMPTS:
+                        _LOGGER.warning(
+                            "[Enpal WebSocket] Giving up on toggle '%s' after "
+                            "%d failed clicks: %s",
+                            dom_id, attempts,
+                            args[2] if len(args) > 2 else None,
+                        )
+                    else:
+                        _LOGGER.debug(
+                            "[Enpal WebSocket] Toggle '%s' click failed "
+                            "(attempt %d, retrying with fresh handler id): %s",
+                            dom_id, attempts,
+                            args[2] if len(args) > 2 else None,
+                        )
 
             elif target == "JS.Error":
                 _LOGGER.warning(
@@ -707,38 +732,55 @@ class EnpalWebSocketClient(EnpalApiClient):
     # ------------------------------------------------------------------
 
     def _collect_toggle_handlers(self, raw: bytes) -> None:
-        """Remember event handler IDs of the show-hidden-values checkboxes.
+        """Track the current event handler IDs of the hidden-values checkboxes.
 
-        Handler IDs can change whenever the card re-renders, so the map is
-        refreshed from every RenderBatch. Only toggles of selected sensor
-        groups are collected.
+        The box disposes and recreates every ``onchange`` handler on each
+        re-render.  Only the initial page batch carries ``id`` attributes, so
+        the position of each toggle among the ordered ``onchange`` handlers is
+        learned there.  Later diff batches carry the fresh handler ids in the
+        same DOM order (without ids); they are mapped back by position.
         """
-        for dom_id, handler_id in extract_event_handlers(raw).items():
-            if not dom_id.startswith(_TOGGLE_ID_PREFIXES):
-                continue
-            group = dom_id.split("_", 1)[1]
-            if group not in self.groups:
-                continue
-            if self._toggle_handlers.get(dom_id) != handler_id:
-                _LOGGER.debug(
-                    "[Enpal WebSocket] Toggle '%s' has handler id %d",
-                    dom_id, handler_id,
-                )
-            self._toggle_handlers[dom_id] = handler_id
+        ordered = extract_change_handler_ids(raw)
+        named = {
+            dom_id: handler_id
+            for dom_id, handler_id in extract_event_handlers(raw).items()
+            if dom_id.startswith(_TOGGLE_ID_PREFIXES)
+            and dom_id.split("_", 1)[1] in self.groups
+        }
+
+        if named:
+            # Batch with id attributes (initial page render): learn positions.
+            eid_to_pos = {eid: i for i, eid in enumerate(ordered)}
+            self._change_handler_count = len(ordered)
+            self._toggle_positions = {
+                dom_id: eid_to_pos[handler_id]
+                for dom_id, handler_id in named.items()
+                if handler_id in eid_to_pos
+            }
+            self._toggle_handlers.update(named)
+            _LOGGER.debug(
+                "[Enpal WebSocket] Learned %d toggle positions among %d change handlers",
+                len(self._toggle_positions), self._change_handler_count,
+            )
+        elif (
+            self._toggle_positions
+            and ordered
+            and len(ordered) == self._change_handler_count
+        ):
+            # Diff batch: same handler layout, fresh ids. Remap by position.
+            for dom_id, pos in self._toggle_positions.items():
+                self._toggle_handlers[dom_id] = ordered[pos]
 
     async def _activate_next_toggle(self) -> None:
         """Click one pending checkbox so hidden sensor rows get rendered.
 
         Clicks are held back until the circuit is stable: the initial page
         RenderBatch arrives while connect() is still running, and dispatching
-        into a starting circuit crashed it on firmware 8.51. Handler IDs are
-        collected from that initial batch anyway and clicked from the first
-        batch after connect() finished.
+        into a starting circuit crashed it on firmware 8.51.
 
-        One toggle per RenderBatch: each click triggers a re-render that may
-        reassign the remaining handler IDs, and the next batch delivers the
-        fresh ones. A toggle is retried only when a later batch shows a
-        handler id different from the one already clicked.
+        One toggle per RenderBatch, always with the freshest handler id. A
+        failed click (handler disposed in the meantime) is harmless and is
+        retried once the next batch delivers a new id, up to a retry limit.
         """
         if self._toggles_disabled or not self.connected:
             return
@@ -747,9 +789,14 @@ class EnpalWebSocketClient(EnpalApiClient):
         if time.monotonic() - self._circuit_started < _TOGGLE_MIN_CIRCUIT_AGE:
             return
         for dom_id, handler_id in self._toggle_handlers.items():
-            if self._toggles_attempted.get(dom_id) == handler_id:
+            if dom_id in self._toggles_done:
                 continue
+            if self._toggle_attempts.get(dom_id, 0) >= _TOGGLE_MAX_ATTEMPTS:
+                continue
+            if self._toggles_attempted.get(dom_id) == handler_id:
+                continue  # wait for a fresh handler id before retrying
             self._toggles_attempted[dom_id] = handler_id
+            self._toggle_attempts[dom_id] = self._toggle_attempts.get(dom_id, 0) + 1
             try:
                 await self._send_checkbox_change(dom_id, handler_id)
             except Exception:

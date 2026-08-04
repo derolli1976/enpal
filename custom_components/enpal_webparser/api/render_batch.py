@@ -265,6 +265,47 @@ def extract_event_handlers(raw: bytes) -> Dict[str, int]:
         return {}
 
 
+def extract_change_handler_ids(raw: bytes) -> List[int]:
+    """Ordered event handler ids of all ``onchange`` attribute frames.
+
+    Firmware 8.51 disposes and recreates every checkbox handler on each
+    re-render.  The diff batches carry the fresh handlers in stable DOM order
+    but without ``id`` attributes, so the position in this list is the only
+    way to map them back to a checkbox learned from the initial batch.
+
+    Returns an empty list on malformed frames.
+    """
+    strings = parse_render_batch_strings(raw)
+    if not strings or len(raw) < 24:
+        return []
+    try:
+        footer = struct.unpack_from("<5i", raw, len(raw) - 20)
+        frames_offset, frames_end = footer[1], footer[2]
+        if not (0 <= frames_offset < frames_end <= len(raw)):
+            return []
+
+        pos = frames_offset
+        count = struct.unpack_from("<i", raw, pos)[0]
+        pos += 4
+
+        ordered: List[int] = []
+        for _ in range(count):
+            if pos + 20 > frames_end:
+                break
+            frame_type = struct.unpack_from("<i", raw, pos)[0]
+            if frame_type == 3:  # attribute frame
+                name_idx = struct.unpack_from("<i", raw, pos + 4)[0]
+                event_id = struct.unpack_from("<q", raw, pos + 12)[0]
+                name = strings[name_idx] if 0 <= name_idx < len(strings) else None
+                if name == "onchange" and event_id > 0:
+                    ordered.append(event_id)
+            pos += 20
+        return ordered
+    except Exception as e:  # noqa: BLE001 - never let a bad frame break the loop
+        _LOGGER.debug("[Enpal RenderBatch] change-handler scan failed: %s", e)
+        return []
+
+
 def is_patchable_value(value: Optional[str]) -> bool:
     """Whether a raw RenderBatch value should be applied on the fast path.
 

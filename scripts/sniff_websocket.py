@@ -87,6 +87,7 @@ extract_application_state = _protocol.extract_application_state
 
 _render_batch = _load_module("enpal_render_batch", _API_DIR / "render_batch.py")
 extract_event_handlers = _render_batch.extract_event_handlers
+extract_change_handler_ids = _render_batch.extract_change_handler_ids
 
 # Mirrors websocket_client._JS_CALL_RESULTS: answering these with null crashes
 # the circuit on firmware 8.51.
@@ -226,6 +227,10 @@ class EnpalSniffer:
 
         # Toggle-click test state (mirrors websocket_client).
         self._toggle_handlers: Dict[str, int] = {}
+        self._toggle_positions: Dict[str, int] = {}
+        self._change_handler_count = 0
+        self._toggles_done: set = set()
+        self._toggle_attempts: Dict[str, int] = {}
         self._toggles_attempted: Dict[str, int] = {}
         self._pending_toggle_calls: Dict[int, str] = {}
         self._renderer_interop_id = 1
@@ -495,18 +500,44 @@ class EnpalSniffer:
     # Page-toggle click test (mirrors websocket_client)
     # ------------------------------------------------------------------
     def _collect_toggle_handlers(self, batch_bytes: bytes) -> None:
+        # The box disposes/recreates every onchange handler per re-render. The
+        # initial batch carries id attributes; later diff batches only the
+        # fresh handler ids in the same DOM order, mapped back by position.
         try:
-            handlers = extract_event_handlers(batch_bytes)
+            ordered = extract_change_handler_ids(batch_bytes)
+            named = {
+                dom_id: handler_id
+                for dom_id, handler_id in extract_event_handlers(batch_bytes).items()
+                if dom_id.startswith(_TOGGLE_ID_PREFIXES)
+            }
         except Exception as exc:  # noqa: BLE001
-            _LOGGER.warning("extract_event_handlers failed: %s", exc)
+            _LOGGER.warning("handler scan failed: %s", exc)
             return
-        for dom_id, handler_id in handlers.items():
-            if not dom_id.startswith(_TOGGLE_ID_PREFIXES):
-                continue
-            if self._toggle_handlers.get(dom_id) != handler_id:
-                _LOGGER.info("Toggle handler found: %s -> event handler %d", dom_id, handler_id)
-                self._record({"type": "toggle_handler", "dom_id": dom_id, "handler_id": handler_id})
-            self._toggle_handlers[dom_id] = handler_id
+
+        if named:
+            eid_to_pos = {eid: i for i, eid in enumerate(ordered)}
+            self._change_handler_count = len(ordered)
+            self._toggle_positions = {
+                dom_id: eid_to_pos[handler_id]
+                for dom_id, handler_id in named.items()
+                if handler_id in eid_to_pos
+            }
+            self._toggle_handlers.update(named)
+            _LOGGER.info(
+                "Learned %d toggle positions among %d change handlers",
+                len(self._toggle_positions), self._change_handler_count,
+            )
+            for dom_id, handler_id in named.items():
+                self._record({"type": "toggle_handler", "dom_id": dom_id,
+                              "handler_id": handler_id,
+                              "position": self._toggle_positions.get(dom_id)})
+        elif (
+            self._toggle_positions
+            and ordered
+            and len(ordered) == self._change_handler_count
+        ):
+            for dom_id, pos in self._toggle_positions.items():
+                self._toggle_handlers[dom_id] = ordered[pos]
 
     async def _activate_next_toggle(self) -> None:
         if self.ws is None or self.ws.closed:
@@ -514,9 +545,14 @@ class EnpalSniffer:
         if time.monotonic() - self._start_time < self.toggle_delay:
             return
         for dom_id, handler_id in self._toggle_handlers.items():
+            if dom_id in self._toggles_done:
+                continue
+            if self._toggle_attempts.get(dom_id, 0) >= 8:
+                continue
             if self._toggles_attempted.get(dom_id) == handler_id:
                 continue
             self._toggles_attempted[dom_id] = handler_id
+            self._toggle_attempts[dom_id] = self._toggle_attempts.get(dom_id, 0) + 1
             await self._send_checkbox_change(dom_id, handler_id)
             return
 
@@ -564,11 +600,14 @@ class EnpalSniffer:
         if dom_id is None:
             return
         if success:
+            self._toggles_done.add(dom_id)
             _LOGGER.info("CLICK OK: toggle '%s' accepted by the box", dom_id)
         else:
             _LOGGER.warning(
-                "CLICK FAILED: toggle '%s' rejected: %s",
-                dom_id, args[2] if len(args) > 2 else None,
+                "CLICK FAILED: toggle '%s' rejected (attempt %d, will retry "
+                "with fresh handler id): %s",
+                dom_id, self._toggle_attempts.get(dom_id, 0),
+                args[2] if len(args) > 2 else None,
             )
 
     def _try_capture_renderer_interop_id(self, args_json_str: str) -> None:
