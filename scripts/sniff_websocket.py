@@ -63,7 +63,11 @@ from bs4 import BeautifulSoup
 # Load the Blazor protocol helpers from the integration (no HA dependencies).
 # ---------------------------------------------------------------------------
 _REPO_ROOT = Path(__file__).resolve().parent.parent
-_API_DIR = _REPO_ROOT / "custom_components" / "enpal_webparser" / "api"
+if getattr(sys, "frozen", False):
+    # PyInstaller bundle: the api modules are shipped as data files.
+    _API_DIR = Path(getattr(sys, "_MEIPASS")) / "api"
+else:
+    _API_DIR = _REPO_ROOT / "custom_components" / "enpal_webparser" / "api"
 
 
 def _load_module(name: str, path: Path):
@@ -701,7 +705,8 @@ async def _main_async(args: argparse.Namespace) -> int:
     base_url = _normalize_base_url(args.target)
     outdir = Path(args.outdir)
     if not outdir.is_absolute():
-        outdir = _REPO_ROOT / outdir
+        base = Path.cwd() if getattr(sys, "frozen", False) else _REPO_ROOT
+        outdir = base / outdir
 
     sniffer = EnpalSniffer(
         base_url,
