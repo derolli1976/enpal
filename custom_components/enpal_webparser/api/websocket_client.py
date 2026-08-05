@@ -448,8 +448,10 @@ class EnpalWebSocketClient(EnpalApiClient):
                         identifier,
                         str(args[2])[:200] if len(args) > 2 else "",
                     )
+                    # Only attachWebRendererInterop carries the renderer ref;
+                    # Radzen.createChart etc. pass their own DotNet object refs.
                     if len(args) > 2 and isinstance(args[2], str):
-                        self._try_capture_renderer_interop_id(args[2])
+                        self._try_capture_renderer_interop_id(identifier, args[2])
                     await self._send_end_invoke_js(
                         args[0], _JS_CALL_RESULTS.get(identifier, "null")
                     )
@@ -848,13 +850,16 @@ class EnpalWebSocketClient(EnpalApiClient):
             reason, _TOGGLE_BLAME_WINDOW,
         )
 
-    def _try_capture_renderer_interop_id(self, args_json_str: str) -> None:
+    def _try_capture_renderer_interop_id(self, identifier: str, args_json_str: str) -> None:
         """Extract the renderer's DotNet object reference from JS.BeginInvokeJS.
 
         Blazor calls attachWebRendererInterop with a DotNet object reference
         (serialized as {"__dotNetObject": N}); DispatchEventAsync must be
-        invoked on that object.
+        invoked on that object. Other JS calls (e.g. Radzen.createChart) pass
+        their own DotNet object refs and must not overwrite the renderer ref.
         """
+        if identifier != "Blazor._internal.attachWebRendererInterop":
+            return
         if '"__dotNetObject"' not in args_json_str:
             return
         try:

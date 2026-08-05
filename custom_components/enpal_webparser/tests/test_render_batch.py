@@ -551,6 +551,31 @@ def test_activate_next_toggle_skips_done_and_exhausted():
     assert sent == []
 
 
+def test_renderer_interop_ref_only_from_attach_call():
+    client = EnpalWebSocketClient("http://box.local", groups=["Battery"])
+    assert client._renderer_interop_id == 1
+
+    # Radzen chart refs (observed as objects 2..4) must not overwrite the ref.
+    client._try_capture_renderer_interop_id(
+        "Radzen.createChart",
+        '[{"__internalId": "4a5c597b"}, {"__dotNetObject": 4}]',
+    )
+    assert client._renderer_interop_id == 1
+
+    # Only attachWebRendererInterop carries the renderer object.
+    client._try_capture_renderer_interop_id(
+        "Blazor._internal.attachWebRendererInterop",
+        '[1, {"__dotNetObject": 1}, {}, {}]',
+    )
+    assert client._renderer_interop_id == 1
+
+    client._try_capture_renderer_interop_id(
+        "Blazor._internal.attachWebRendererInterop",
+        '[1, {"__dotNetObject": 7}, {}, {}]',
+    )
+    assert client._renderer_interop_id == 7
+
+
 def test_collect_toggle_handlers_filters_groups():
     client = EnpalWebSocketClient("http://box.local", groups=["Battery", "Site Data"])
     raw = _build_batch(_TOGGLE_FRAMES, _TOGGLE_STRINGS)

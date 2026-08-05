@@ -1,10 +1,10 @@
-# 3.0.3b9 - Firmware 8.51 (Beta)
+# 3.0.3b10 - Firmware 8.51 (Beta)
 
 Enpal hat mit **Solar Rel. 8.51** die Seite `/deviceMessages` umgebaut. Auf Boxen mit dieser Firmware zeigen viele Sensoren seitdem Fehlertexte statt Messwerten an. Diese Beta behebt das.
 
 Getestet wurde gegen zwei Seitenstände: `8.51.0-950631` und `8.51.0-955735`.
 
-Gegenüber 3.0.3b8 behebt diese Beta einen Fehler, durch den die Seitenschalter für die ausgeblendeten Werte (unter anderem der Batterie-Ladestand) nie erfolgreich angeklickt wurden.
+Gegenüber 3.0.3b9 behebt diese Beta den Grund, warum die Schalter-Klicks weiterhin fehlschlugen: Sie gingen an das falsche interne Objekt der Box.
 
 ---
 
@@ -116,7 +116,19 @@ Beides ist behoben:
 
 ---
 
-## � Behoben gegenüber b8: Schalter-Klicks liefen ins Leere
+## 🐛 Behoben gegenüber b9: Klicks gingen an das falsche Objekt
+
+b9 hat das erste Problem gelöst (veraltete Klick-Kennungen), aber die Klicks schlugen weiter fehl. Zwei Sniffer-Aufzeichnungen zeigen die zweite Ursache eindeutig:
+
+Beim Verbindungsaufbau vergibt die Box Referenzen auf mehrere interne Objekte. Objekt 1 ist der Renderer, der die Klicks entgegennimmt. Die Objekte 2 bis 4 gehören zu den drei Diagrammen der Seite. Die Integration hat die Renderer-Referenz aus jeder passenden Nachricht übernommen und dabei mit den Diagramm-Referenzen überschrieben. Alle Klicks gingen dadurch an ein Diagramm-Objekt und liefen dort in eine Exception.
+
+Das erklärt auch das wechselhafte Verhalten: Ob ein Klick funktionierte, hing davon ab, welche Nachricht zuletzt verarbeitet wurde.
+
+Die Referenz wird jetzt nur noch aus der einen Nachricht übernommen, die den Renderer anmeldet (`attachWebRendererInterop`). Die Auswertung der Aufzeichnungen bestätigt: Die in b9 verwendeten Klick-Kennungen waren in 78 von 80 Fällen gültig, nur das Zielobjekt war falsch.
+
+---
+
+## 🐛 Behoben in b9: Klick-Kennungen veralten
 
 Eine Aufzeichnung des kompletten Nachrichtenverkehrs (Danke an den Tester aus Issue #148) hat die Ursache gezeigt: Die Box verwirft die internen Klick-Kennungen aller Schalter bei jeder Aktualisierung der Seite und vergibt neue. Das passiert etwa alle 1,5 bis 5 Sekunden. b8 hat die Kennungen aus dem ersten Datenpaket gespeichert und Sekunden später damit geklickt. Zu diesem Zeitpunkt waren sie längst ungültig. Die Box hat jeden Klick mit einer Fehlermeldung abgelehnt.
 
@@ -128,7 +140,7 @@ Die Zuordnung wurde offline gegen die komplette Aufzeichnung geprüft (204 Daten
 
 ---
 
-## �🔋 Batterie-Ladestand kommt zurück
+## 🔋 Batterie-Ladestand kommt zurück
 
 Der Ladestand `Energy.Battery.Charge.Level` fehlte auf 8.51 komplett. Die Gruppe "Battery" enthielt nur noch die maximale AC-Leistung und die Seriennummern.
 
@@ -150,7 +162,7 @@ Sobald die ausgeblendeten Zeilen übertragen werden, legt die Sensor-Erzeugung a
 1. In HACS → **Enpal Solar** öffnen
 2. Auf die **drei Punkte** (⋮) klicken → **Version auswählen**
 3. **Beta-Versionen einblenden** aktivieren
-4. Version **3.0.3b9** auswählen und installieren
+4. Version **3.0.3b10** auswählen und installieren
 5. Home Assistant **neu starten**
 
 Bestehende Einstellungen bleiben erhalten. Ein Neuaufsetzen der Integration ist nicht nötig.
