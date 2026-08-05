@@ -452,7 +452,7 @@ class EnpalSniffer:
                     if args:
                         identifier = args[1] if len(args) > 1 else ""
                         if len(args) > 2 and isinstance(args[2], str):
-                            self._try_capture_renderer_interop_id(args[2])
+                            self._try_capture_renderer_interop_id(identifier, args[2])
                         try:
                             await self._send_end_invoke_js(
                                 args[0], _JS_CALL_RESULTS.get(identifier, "null")
@@ -610,7 +610,9 @@ class EnpalSniffer:
                 args[2] if len(args) > 2 else None,
             )
 
-    def _try_capture_renderer_interop_id(self, args_json_str: str) -> None:
+    def _try_capture_renderer_interop_id(self, identifier: str, args_json_str: str) -> None:
+        if identifier != "Blazor._internal.attachWebRendererInterop":
+            return
         if '"__dotNetObject"' not in args_json_str:
             return
         try:
@@ -625,6 +627,7 @@ class EnpalSniffer:
                 if obj_id > 0:
                     self._renderer_interop_id = obj_id
                     _LOGGER.info("Renderer DotNet object ref captured: %d", obj_id)
+                    self._record({"type": "renderer_interop", "object_id": obj_id})
                     return
 
     def _log_toggle_blame(self, reason: str) -> None:
