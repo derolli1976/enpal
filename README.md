@@ -10,7 +10,7 @@
 [![Pytest](https://github.com/derolli1976/enpal/actions/workflows/tests.yaml/badge.svg)](https://github.com/derolli1976/enpal/actions/workflows/tests.yaml)
 [![CodeQL](https://github.com/derolli1976/enpal/actions/workflows/codeql.yaml/badge.svg)](https://github.com/derolli1976/enpal/actions/workflows/codeql.yaml)
 [![Bandit](https://github.com/derolli1976/enpal/actions/workflows/bandit.yaml/badge.svg)](https://github.com/derolli1976/enpal/actions/workflows/bandit.yaml)
-![Enpal_version](https://img.shields.io/badge/tested%20with%20enpal%20firmware-Solar%20Rel.%208.50.1--773465%20(27.05.2026)-blue)
+![Enpal_version](https://img.shields.io/badge/tested%20with%20enpal%20firmware-Solar%20Rel.%208.51-blue)
 
 [![hacs_install](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=derolli1976&repository=enpal&category=integration)
 
@@ -20,9 +20,19 @@ Eine Home Assistant Custom Integration zur lokalen Überwachung von Enpal Solara
 
 ---
 
-## 🆕 Neu in Version 3.0.0
+## 🆕 Neu in Version 3.1.0
 
-Version 3.0.0 bringt einen Echtzeit-Modus und eine native Wallbox-Steuerung.
+Version 3.1.0 stellt die volle Funktion auf Firmware **Solar Rel. 8.51** wieder her und macht die Integration robuster gegen künftige Umbauten durch Enpal.
+
+- **Firmware 8.51 wird unterstützt:** Die umgebaute Datenseite der Box wird vollständig gelesen, inklusive der standardmäßig ausgeblendeten Werte (Batterie-Ladestand, Batterietemperatur, Batteriespannung).
+- **Gruppenauswahl blendet nur noch aus:** Alle Gerätegruppen werden immer gelesen. Abgewählte Gruppen erzeugen deaktivierte Entities. Neue Gruppen sind automatisch aktiv.
+- **Neue Gerätegruppe "ControlBox":** EEBUS- und Smart-Meter-Gateway-Werte neuerer Anlagen (z. B. FoxESS).
+- **Unbekannte Sensoren gehen nicht mehr verloren:** Keys ohne Gruppenzuordnung landen unter "Uncategorized".
+- **Über 115 neue Sensor-Zuordnungen** für Huawei- und FoxESS-Anlagen.
+
+Details in den [Release Notes 3.1.0](docs/RELEASE_NOTES_3.1.0.md).
+
+### Aus Version 3.0.0
 
 - **WebSocket-Modus (Echtzeit):** Sensor-Werte werden sofort aktualisiert statt nur im Intervall. Setzt Firmware **8.50** voraus.
 - **Native Wallbox-Steuerung ohne Add-on:** Im WebSocket-Modus steuert die Integration die Wallbox direkt. Das separate Add-on bzw. die Wallbox App wird nicht mehr benötigt.
@@ -32,22 +42,18 @@ Version 3.0.0 bringt einen Echtzeit-Modus und eine native Wallbox-Steuerung.
 
 Details in den [Release Notes 3.0.0](docs/RELEASE_NOTES_3.0.0.md).
 
-> **Update 3.0.1:** Bugfix für den WebSocket-Modus. Sensoren, die direkt nach einem Neustart fehlten, froren ein oder blieben `unavailable`. Details in den [Release Notes 3.0.1](docs/RELEASE_NOTES_3.0.1.md).
+> **Hinweis zur Firmware:** Der WebSocket-Modus, die native Wallbox-Steuerung und das RenderBatch-Parsing setzen die Enpal-Firmware **Solar Rel. 8.50** oder höher voraus. Auf älteren Firmware-Ständen läuft weiterhin der HTML-Polling-Modus (Legacy), ohne die neuen Echtzeit- und Wallbox-Funktionen.
 
-> **Update 3.0.2:** Geringere CPU-Last und ein Statussensor der Wallbox, der nicht mehr fehlerhaft als Spannungssensor behandelt wird. Details in den [Release Notes 3.0.2](docs/RELEASE_NOTES_3.0.2.md).
-
-> **Hinweis zur Firmware:** Der WebSocket-Modus, die native Wallbox-Steuerung und das RenderBatch-Parsing setzen die Enpal-Firmware **Solar Rel. 8.50.1-773465 (27.05.2026)** voraus. Auf älteren Firmware-Ständen läuft weiterhin der HTML-Polling-Modus (Legacy), ohne die neuen Echtzeit- und Wallbox-Funktionen.
-
-> **Hinweis zu fehlenden Sensoren:** Seit Firmware **8.50** stellt Enpal einige Sensoren nicht mehr bereit. Die Integration kann das nicht ändern. Betroffene Entitäten kannst du in Home Assistant gefahrlos löschen.
+> **Hinweis zu fehlenden Sensoren:** Enpal ändert mit Firmware-Updates gelegentlich die verfügbaren Datenpunkte. Die Integration kann das nicht ändern. Dauerhaft entfallene Entitäten kannst du in Home Assistant gefahrlos löschen.
 
 ---
 
 ## ✨ Features
 
 - **Lokale Kommunikation:** Keine Cloud-Anbindung erforderlich, alle Daten werden lokal im Netzwerk abgerufen.
-- **Zwei Datenquellen:** WebSocket-Echtzeitmodus (Firmware 8.50) oder HTML-Polling (Legacy), mit automatischer Erkennung der besten Methode.
+- **Zwei Datenquellen:** WebSocket-Echtzeitmodus (Firmware 8.50 und 8.51) oder HTML-Polling (Legacy), mit automatischer Erkennung der besten Methode.
 - **Umfangreiche Sensoren:** Über 100 Datenpunkte für PV-Anlage, Batterie, Inverter, Wallbox und Wärmepumpe.
-- **Flexible Sensor-Gruppen:** Wählbare Kategorien (Battery, Inverter, Wallbox, Heatpump und weitere).
+- **Flexible Sensor-Gruppen:** Wählbare Kategorien (Battery, Inverter, Wallbox, Heatpump, ControlBox und weitere). Abgewählte Gruppen erzeugen deaktivierte Entities, neue Gruppen sind automatisch aktiv.
 - **Auto-Discovery:** Automatische Erkennung der Enpal Box im lokalen Netzwerk.
 - **Energy Dashboard:** Volle Unterstützung für das Home Assistant Energy Dashboard.
 - **Wallbox-Steuerung:** Nativ im WebSocket-Modus oder über separates Add-on im HTML-Modus.
@@ -420,5 +426,5 @@ MIT License - siehe [LICENSE](LICENSE) Datei für Details.
 
 ---
 
-**Getestet mit**: Enpal Firmware Solar Rel. 8.50.1-773465 (27.05.2026)
+**Getestet mit**: Enpal Firmware Solar Rel. 8.50 und 8.51 (Huawei- und FoxESS-Anlagen)
 
