@@ -12,16 +12,18 @@ _LOGGER = logging.getLogger(__name__)
 class EnpalHtmlClient(EnpalApiClient):
     """HTML parser client for Enpal Box (legacy/fallback mode)"""
     
-    def __init__(self, base_url: str, groups: List[str]):
+    def __init__(self, base_url: str, groups: List[str], excluded_groups: List[str] = None):
         """
         Initialize HTML client.
         
         Args:
             base_url: Base URL of Enpal Box (e.g., http://192.168.1.100)
             groups: List of sensor groups to parse
+            excluded_groups: Groups whose entities default to disabled
         """
         self.base_url = base_url.rstrip('/')
         self.groups = groups
+        self.excluded_groups = list(excluded_groups or [])
         self.session: aiohttp.ClientSession = None
         self.connected: bool = False
     
@@ -78,7 +80,7 @@ class EnpalHtmlClient(EnpalApiClient):
                 sys.path.insert(0, str(parent_dir))
                 from utils import parse_enpal_html_sensors
             
-            sensors = parse_enpal_html_sensors(html, self.groups)
+            sensors = parse_enpal_html_sensors(html, self.groups, self.excluded_groups)
             
             _LOGGER.info(
                 "[Enpal HTML Client] Parsed %d sensors from HTML",

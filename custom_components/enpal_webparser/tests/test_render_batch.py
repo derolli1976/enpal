@@ -182,17 +182,29 @@ def test_apply_diff_skips_ambiguous_cross_group_keys():
     assert before == after, "ambiguous key must not be patched on the fast path"
 
 
-def test_apply_diff_skips_unknown_key():
+def test_apply_diff_creates_unknown_key_as_uncategorized():
+    """Keys without a SENSOR_KEY_GROUPS entry land in \"Uncategorized\"."""
     baseline = _load_baseline()
     client = EnpalWebSocketClient("http://box.local", groups=list(DEFAULT_GROUPS))
     client._set_baseline(baseline)
 
-    before = [dict(s) for s in baseline]
     client._apply_diff([
         {"key": "Totally.Unknown.Sensor", "value": "5", "unit": "W",
          "timestamp": "2026-06-02 15:06:50.331Z"},
     ])
-    assert [dict(s) for s in baseline] == before
+    created = _find(client._baseline, "Totally.Unknown.Sensor")
+    assert created is not None
+    assert created["group"] == "Uncategorized"
+    assert created["enabled"] is True
+    assert created["value"] == "5"
+
+    # Numeric pseudo-keys from misread rows are not turned into sensors.
+    before = len(client._baseline)
+    client._apply_diff([
+        {"key": "226.3", "value": "1", "unit": "V",
+         "timestamp": "2026-06-02 15:06:50.331Z"},
+    ])
+    assert len(client._baseline) == before
 
 
 def test_apply_diff_rejects_timestamp_as_value_for_numeric_sensor():
@@ -436,7 +448,9 @@ def test_system_state_row_expands_into_split_sensors():
 
 
 def test_system_state_row_respects_group_selection():
-    client = EnpalWebSocketClient("http://box.local", groups=["Site Data"])
+    client = EnpalWebSocketClient(
+        "http://box.local", groups=["Site Data"], excluded_groups=["Inverter"]
+    )
     client._set_baseline(_site_data_only_baseline())
     created = client._apply_system_state_row({
         "key": "Inverter.System.State",
@@ -444,7 +458,13 @@ def test_system_state_row_respects_group_selection():
         "unit": None,
         "timestamp": None,
     })
-    assert created == 0
+    # Deselected group: sensors are created but default to disabled.
+    assert created > 0
+    decimal = next(
+        s for s in client._baseline
+        if make_id(s["name"]) == "inverter_system_state_decimal"
+    )
+    assert decimal["enabled"] is False
 
 
 # ---------------------------------------------------------------------------
@@ -511,7 +531,10 @@ def test_apply_diff_creates_aliased_inverter_sensor():
 
 def test_apply_diff_creation_respects_group_selection():
     baseline = _site_data_only_baseline()
-    client = EnpalWebSocketClient("http://box.local", groups=["Site Data", "Wallbox"])
+    client = EnpalWebSocketClient(
+        "http://box.local", groups=["Site Data", "Wallbox"],
+        excluded_groups=["IoTEdgeDevice"],
+    )
     client._set_baseline(baseline)
 
     client._apply_diff([
@@ -519,8 +542,11 @@ def test_apply_diff_creation_respects_group_selection():
          "timestamp": "18:19:44.00"},
     ])
 
-    # IoTEdgeDevice is not selected, so no sensor is created.
-    assert _find(client._baseline, "Cpu.Load") is None
+    # Deselected group: the sensor is created but defaults to disabled.
+    created = _find(client._baseline, "Cpu.Load")
+    assert created is not None
+    assert created["group"] == "IoTEdgeDevice"
+    assert created["enabled"] is False
 
 
 def test_set_baseline_keeps_diff_created_sensors():
@@ -645,7 +671,9 @@ def test_extract_change_handler_ids_handles_garbage():
 
 
 def test_collect_toggle_handlers_remaps_by_position():
-    client = EnpalWebSocketClient("http://box.local", groups=["Battery"])
+    client = EnpalWebSocketClient(
+        "http://box.local", groups=["Battery"], excluded_groups=["IoTEdgeDevice"]
+    )
 
     # Initial batch: learn ids and positions.
     client._collect_toggle_handlers(_build_batch(_TOGGLE_FRAMES, _TOGGLE_STRINGS))
@@ -668,7 +696,9 @@ def test_collect_toggle_handlers_remaps_by_position():
 
 
 def test_collect_toggle_handlers_skips_mismatched_diff():
-    client = EnpalWebSocketClient("http://box.local", groups=["Battery"])
+    client = EnpalWebSocketClient(
+        "http://box.local", groups=["Battery"], excluded_groups=["IoTEdgeDevice"]
+    )
     client._collect_toggle_handlers(_build_batch(_TOGGLE_FRAMES, _TOGGLE_STRINGS))
 
     # A diff batch with a different handler count must not remap.
@@ -718,12 +748,15 @@ def test_renderer_interop_ref_only_from_attach_call():
 
 
 def test_collect_toggle_handlers_filters_groups():
-    client = EnpalWebSocketClient("http://box.local", groups=["Battery", "Site Data"])
+    client = EnpalWebSocketClient(
+        "http://box.local", groups=["Battery", "Site Data"],
+        excluded_groups=["IoTEdgeDevice"],
+    )
     raw = _build_batch(_TOGGLE_FRAMES, _TOGGLE_STRINGS)
 
     client._collect_toggle_handlers(raw)
 
-    # IoTEdgeDevice is not selected, its toggle is ignored.
+    # IoTEdgeDevice is deselected, its toggle is ignored.
     assert client._toggle_handlers == {
         "showUnsupported_Battery": 42,
         "showInternal_Battery": 43,

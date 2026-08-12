@@ -31,6 +31,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from .discovery import discover_enpal_devices, quick_discover_enpal_devices
 from .wallbox_api import WallboxApiClient
 from .utils import (
+    excluded_groups_from_options,
     firmware_supports_websocket,
     make_id,
     parse_enpal_html_sensors,
@@ -136,11 +137,14 @@ async def detect_websocket_support(hass, base_url: str) -> bool:
 
 def get_default_config(options: dict[str, Any] | None = None) -> dict[str, Any]:
     src = dict(options) if options is not None else {}
+    # Derive the displayed selection from the effective exclusions so groups
+    # added after the entry was created (e.g. ControlBox) show up checked.
+    excluded = excluded_groups_from_options(src) if src else []
     return {
         "url": src.get("url", DEFAULT_URL),
         "interval": src.get("interval", DEFAULT_INTERVAL),
         "timeout": src.get("timeout", DEFAULT_TIMEOUT),
-        "groups": src.get("groups", DEFAULT_GROUPS),
+        "groups": [g for g in DEFAULT_GROUPS if g not in excluded],
         "use_wallbox": src.get("use_wallbox", DEFAULT_USE_WALLBOX),
         "data_source": src.get("data_source", "auto"),  # auto, websocket, html
         "wallbox_mode_source": src.get("wallbox_mode_source", "auto"),
@@ -319,6 +323,9 @@ async def process_user_input(hass, user_input: dict[str, Any]) -> tuple[dict[str
         "interval": user_input["interval"],
         "timeout": user_input.get("timeout", DEFAULT_TIMEOUT),
         "groups": user_input.get("groups", DEFAULT_GROUPS),
+        "excluded_groups": [
+            g for g in DEFAULT_GROUPS if g not in user_input.get("groups", DEFAULT_GROUPS)
+        ],
         "use_wallbox": user_input.get("use_wallbox", False),
         "data_source": data_source,
         "wallbox_mode_source": user_input.get("wallbox_mode_source", "auto"),
@@ -548,6 +555,10 @@ class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         "interval": user_input["interval"],
                         "timeout": user_input.get("timeout", DEFAULT_TIMEOUT),
                         "groups": user_input.get("groups", DEFAULT_GROUPS),
+                        "excluded_groups": [
+                            g for g in DEFAULT_GROUPS
+                            if g not in user_input.get("groups", DEFAULT_GROUPS)
+                        ],
                         "use_wallbox": user_input.get("use_wallbox", False),
                         "data_source": data_source,
                     },

@@ -88,7 +88,7 @@ def test_parse_enpal_html_sensors_basic():
     assert sensor["enpal_last_update"].startswith("2025-06-05T10:12:01")
 
 def test_parse_enpal_html_sensors_ignore_wrong_group():
-    """Test that sensors from non-matching groups are ignored during parsing."""
+    """Deselected groups are parsed but their entities default to disabled."""
     html = '''
     <div class="card">
         <h2>Battery</h2>
@@ -99,7 +99,9 @@ def test_parse_enpal_html_sensors_ignore_wrong_group():
     </div>
     '''
     result = parse_enpal_html_sensors(html, groups=["Inverter"])
-    assert result == []
+    assert len(result) == 1
+    assert result[0]["group"] == "Battery"
+    assert result[0]["enabled"] is False
 
 
 def test_parse_full_enpal_html():

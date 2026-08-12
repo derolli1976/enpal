@@ -41,9 +41,17 @@ Firmware 8.51 liefert den Sensor `Inverter.System.State` als HTML-Liste statt al
 
 ## ✨ Neue Funktionen
 
+### Gruppenauswahl blendet nur noch aus, statt zu filtern
+
+Bisher hat die Integration abgewählte Gerätegruppen komplett ignoriert. Tauchte eine neue Gruppe auf (wie jetzt "ControlBox") oder verschob Enpal Sensoren in eine andere Gruppe, fehlten die Werte, bis man die Optionen anpasste.
+
+Ab dieser Version werden immer alle Gruppen gelesen. Die Auswahl in den Optionen bestimmt nur noch, ob die Entities einer Gruppe in Home Assistant standardmäßig aktiviert sind. Abgewählte Gruppen erzeugen deaktivierte Entities, die sich jederzeit einzeln einschalten lassen. Neue Gruppen, die es zum Zeitpunkt deiner Konfiguration noch nicht gab, sind automatisch aktiv.
+
+Sensor-Keys, die die Integration noch keiner Gruppe zuordnen kann, werden ab jetzt unter der Gruppe "Uncategorized" angelegt statt verworfen. Der Wert ist damit sofort verfügbar. Hinweis: Wird der Key in einer späteren Version einer richtigen Gruppe zugeordnet, entsteht eine neue Entity-ID.
+
 ### Neue Gerätegruppe "ControlBox"
 
-Neuere Anlagen (z. B. mit FoxESS-Wechselrichter und Starcharge-Wallbox) haben eine zusätzliche Karte "ControlBox" mit EEBUS- und Smart-Meter-Gateway-Werten. Die Gruppe ist jetzt bekannt und in den Standardgruppen enthalten. Bestehende Installationen können sie in den Integrationsoptionen zusätzlich auswählen.
+Neuere Anlagen (z. B. mit FoxESS-Wechselrichter und Starcharge-Wallbox) haben eine zusätzliche Karte "ControlBox" mit EEBUS- und Smart-Meter-Gateway-Werten. Die Gruppe ist jetzt bekannt, in den Standardgruppen enthalten und bei bestehenden Installationen automatisch aktiv.
 
 ### Über 100 neue Sensor-Zuordnungen
 
@@ -51,5 +59,5 @@ Die Tabelle, die Sensor-Keys ihren Gerätegruppen zuordnet, wurde um die Werte e
 
 ## 📋 Bekannte Einschränkungen
 
-- Drei Keys sind auf der Seite mehrdeutig und werden bewusst nicht automatisch angelegt: `Energy.Consumption.Total.Lifetime` (steht auch unter Site Data), `Power.AC.Max`, `SoftwareVersion.Service.2.Fox`.
+- Drei Keys stehen auf der Seite in zwei Karten gleichzeitig (`Energy.Consumption.Total.Lifetime`, `Power.AC.Max`, `SoftwareVersion.Service.2.Fox`). Über den WebSocket-Pfad entsteht dafür ein einzelner "Uncategorized"-Sensor; welcher der beiden Kartenwerte dort steht, kann wechseln.
 - Zeilen ohne Messwert (Notiz "invalid" oder "missing") werden übersprungen. Der Sensor behält seinen letzten bekannten Wert.

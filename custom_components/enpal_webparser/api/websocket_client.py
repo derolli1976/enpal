@@ -108,12 +108,15 @@ class EnpalWebSocketClient(EnpalApiClient):
     # Keep-alive ping interval (seconds) — matches Blazor Server expectation
     _PING_INTERVAL = 15
 
-    def __init__(self, base_url: str, groups: List[str] = None):
+    def __init__(self, base_url: str, groups: List[str] = None, excluded_groups: List[str] = None):
         self.base_url = base_url.rstrip('/')
         self.groups = groups or [
             'Battery', 'Inverter', 'IoTEdgeDevice',
             'PowerSensor', 'Wallbox', 'Site Data', 'Heatpump', 'ControlBox',
         ]
+        # Deselected groups: their sensors are still parsed and created, but
+        # the resulting entities default to disabled in the registry.
+        self.excluded_groups = list(excluded_groups or [])
         self.ws: Optional[aiohttp.ClientWebSocketResponse] = None
         self.session: Optional[aiohttp.ClientSession] = None
         self.components: List[ComponentDescriptor] = []
@@ -328,7 +331,7 @@ class EnpalWebSocketClient(EnpalApiClient):
                 raise ValueError(f"HTTP {resp.status} from {url}")
             html = await resp.text()
 
-        sensors = parse_enpal_html_sensors(html, self.groups)
+        sensors = parse_enpal_html_sensors(html, self.groups, self.excluded_groups)
         _LOGGER.debug("[Enpal WebSocket] Scraped %d sensors from /deviceMessages", len(sensors))
         return sensors
 
@@ -717,7 +720,7 @@ class EnpalWebSocketClient(EnpalApiClient):
         from ..const import SENSOR_KEY_GROUPS
 
         group = SENSOR_KEY_GROUPS.get("Inverter.System.State")
-        if group is None or group not in self.groups:
+        if group is None:
             return 0
         value = row.get("value") or ""
         if "Bits" not in value:
@@ -725,6 +728,7 @@ class EnpalWebSocketClient(EnpalApiClient):
         text = re.sub(r"<[^>]+>", " ", value)
 
         created = 0
+        enabled = group not in self.excluded_groups
         prefix = f"{group}: "
         for sensor in expand_inverter_system_state(group, text, row.get("timestamp")):
             # The HTML parser creates the same sensors but without a "group"
@@ -746,6 +750,7 @@ class EnpalWebSocketClient(EnpalApiClient):
             elif not indices:
                 sensor["group"] = group
                 sensor["raw_key"] = "Inverter.System.State"
+                sensor["enabled"] = enabled
                 idx = len(self._baseline)
                 self._baseline.append(sensor)
                 for sensor_id in ids:
@@ -757,8 +762,9 @@ class EnpalWebSocketClient(EnpalApiClient):
         """Add a baseline sensor for a RenderBatch row with an unknown key.
 
         The row carries no group, so it is restored from the static
-        ``SENSOR_KEY_GROUPS`` table.  Keys without a known group are skipped
-        because a wrong group would produce a wrong entity id.
+        ``SENSOR_KEY_GROUPS`` table. Keys without a known group land in
+        "Uncategorized" so the reading is available immediately; deselected
+        groups only make the entity default to disabled.
         """
         from ..utils import (
             make_id,
@@ -775,9 +781,11 @@ class EnpalWebSocketClient(EnpalApiClient):
         )
 
         raw_key = row["key"]
-        group = SENSOR_KEY_GROUPS.get(raw_key)
-        if group is None or group not in self.groups:
+        # Junk guard for the fallback: real sensor keys start with a letter
+        # (a misread row can yield numeric "keys" like "226.3").
+        if not raw_key or not raw_key[0].isalpha():
             return False
+        group = SENSOR_KEY_GROUPS.get(raw_key, "Uncategorized")
         key = SENSOR_KEY_ALIASES.get(raw_key, raw_key)
 
         value = row.get("value")
@@ -793,7 +801,7 @@ class EnpalWebSocketClient(EnpalApiClient):
             "value": value_clean,
             "unit": unit,
             "device_class": device_class,
-            "enabled": True,
+            "enabled": group not in self.excluded_groups,
             "enpal_last_update": row.get("timestamp"),
             "group": group,
             "raw_key": raw_key,
@@ -831,7 +839,7 @@ class EnpalWebSocketClient(EnpalApiClient):
             dom_id: handler_id
             for dom_id, handler_id in extract_event_handlers(raw).items()
             if dom_id.startswith(_TOGGLE_ID_PREFIXES)
-            and dom_id.split("_", 1)[1] in self.groups
+            and dom_id.split("_", 1)[1] not in self.excluded_groups
         }
 
         if named:

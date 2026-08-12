@@ -41,6 +41,20 @@ DEFAULT_GROUPS = [
     "ControlBox",
 ]
 
+# Group choices offered by the config flow of all released versions up to
+# 3.0.2/3.0.3b11. Entries without a stored "excluded_groups" option derive
+# their exclusions from this list, so groups added later (e.g. ControlBox)
+# never count as deselected for existing installations.
+LEGACY_GROUP_CHOICES = [
+    "Wallbox",
+    "Battery",
+    "Inverter",
+    "Site Data",
+    "IoTEdgeDevice",
+    "PowerSensor",
+    "Heatpump",
+]
+
 DEFAULT_USE_WALLBOX = False
 
 # --- Device Class/Unit Mappings ---

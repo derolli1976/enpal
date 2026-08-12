@@ -28,6 +28,7 @@ from .const import (
     DEFAULT_UNITS,
     DEVICE_CLASS_OVERRIDES,
     ENPAL_TIMESTAMP_FORMAT,
+    LEGACY_GROUP_CHOICES,
     SENSOR_KEY_ALIASES,
     UNIT_DEVICE_CLASS_MAP,
 )
@@ -71,6 +72,7 @@ def expand_inverter_system_state(group: str, raw_text: str, timestamp_iso: Optio
             "device_class": None,
             "enabled": True,
             "enpal_last_update": timestamp_iso,
+            "group": group,
         })
         _LOGGER.debug("[Enpal] INV split: regex not matched, created compact sensor only (group=%s)", group)
         return out
@@ -86,6 +88,7 @@ def expand_inverter_system_state(group: str, raw_text: str, timestamp_iso: Optio
         "device_class": None,
         "enabled": True,
         "enpal_last_update": timestamp_iso,
+        "group": group,
     })
 
     # Flags as summary sensor
@@ -103,6 +106,7 @@ def expand_inverter_system_state(group: str, raw_text: str, timestamp_iso: Optio
         "device_class": None,
         "enabled": True,
         "enpal_last_update": timestamp_iso,
+        "group": group,
     })
 
     # Ech individual flag as separate sensor
@@ -115,6 +119,7 @@ def expand_inverter_system_state(group: str, raw_text: str, timestamp_iso: Optio
             "device_class": None,  # no binary_sensor here, just a regular sensor with on/off
             "enabled": True,
             "enpal_last_update": timestamp_iso,
+            "group": group,
         })
 
     _LOGGER.debug("[Enpal] INV split created %d sensors for group=%s", len(out), group)
@@ -265,15 +270,44 @@ def normalize_value_and_unit(
     return value_clean, unit_out
 
 
+def excluded_groups_from_options(options: Dict[str, Any]) -> List[str]:
+    """Effective exclusion list for a config entry.
+
+    Newer entries store "excluded_groups" directly. Older entries only carry
+    the positive "groups" selection; groups the user could not have seen in
+    that UI (added later, e.g. "ControlBox") must not count as deselected, so
+    the fallback only excludes groups from the legacy choice list.
+    """
+    excluded = options.get("excluded_groups")
+    if excluded is not None:
+        return list(excluded)
+    selected = options.get("groups") or []
+    return [g for g in LEGACY_GROUP_CHOICES if g not in selected]
+
+
 def parse_enpal_html_sensors(
     html: str,
-    groups: List[str]
+    groups: List[str],
+    excluded_groups: Optional[List[str]] = None,
 ) -> List[Dict[str, Any]]:
-    """parsing the html content and extracting sensor data."""
+    """Parse the HTML content and extract sensor data.
+
+    Every card is parsed regardless of the group selection; groups are
+    discovered dynamically from the card headers. Deselected groups only
+    control the entity's registry default (``enabled``), so new groups
+    introduced by a firmware update are active without reconfiguration.
+    ``excluded_groups`` defaults to the groups missing from ``groups`` among
+    the known defaults (backward-compatible call signature).
+    """
+    from .const import DEFAULT_GROUPS
+
+    if excluded_groups is None:
+        excluded_groups = [g for g in DEFAULT_GROUPS if g not in groups]
+
     soup = BeautifulSoup(html, 'html.parser')
     sensors: List[Dict[str, Any]] = []
     parsed_cards: List[str] = []
-    skipped_cards: List[str] = []
+    disabled_cards: List[str] = []
 
     for card in soup.find_all("div", class_="card"):
         if not isinstance(card, Tag):
@@ -282,27 +316,26 @@ def parse_enpal_html_sensors(
         group = extract_group_from_card(card)
         if not group:
             continue
-        if group not in groups:
-            skipped_cards.append(group)
-            continue
+        if group in excluded_groups:
+            disabled_cards.append(group)
 
-        card_sensors = parse_card_rows(card, group, groups)
+        card_sensors = parse_card_rows(card, group, excluded_groups)
         parsed_cards.append(f"{group}={len(card_sensors)}")
         sensors.extend(card_sensors)
 
     if not sensors:
         _LOGGER.warning(
             "[Enpal] No sensors parsed from %d bytes of HTML. Cards read: %s. "
-            "Cards skipped because the group is not selected: %s",
+            "Cards whose entities default to disabled: %s",
             len(html or ""),
             ", ".join(parsed_cards) or "none",
-            ", ".join(skipped_cards) or "none",
+            ", ".join(disabled_cards) or "none",
         )
     else:
         _LOGGER.debug(
-            "[Enpal] Parsed cards: %s. Skipped cards: %s",
+            "[Enpal] Parsed cards: %s. Disabled-by-default cards: %s",
             ", ".join(parsed_cards) or "none",
-            ", ".join(skipped_cards) or "none",
+            ", ".join(disabled_cards) or "none",
         )
 
     # Calculate missing current sensors from power and voltage (I = P / U)
@@ -329,7 +362,7 @@ def is_note_cell(cell: Tag) -> bool:
     return "pi-note-cell" in classes and cell.has_attr("colspan")
 
 
-def parse_card_rows(card: Tag, group: str, groups: List[str]) -> List[Dict[str, Any]]:
+def parse_card_rows(card: Tag, group: str, excluded_groups: List[str]) -> List[Dict[str, Any]]:
     """Extracts sensors from a group."""
     rows = card.find_all("tr")[1:]  # assume first row == header
     sensor_list: List[Dict[str, Any]] = []
@@ -362,7 +395,7 @@ def parse_card_rows(card: Tag, group: str, groups: List[str]) -> List[Dict[str, 
             "value": value_clean,
             "unit": unit,
             "device_class": device_class,
-            "enabled": group in groups,
+            "enabled": group not in excluded_groups,
             "enpal_last_update": timestamp_iso,
             "group": group,  # Add group for later filtering
         }
@@ -392,6 +425,8 @@ def parse_card_rows(card: Tag, group: str, groups: List[str]) -> List[Dict[str, 
 
             # Add the new split sensors (if any)
             if expanded:
+                for exp in expanded:
+                    exp["enabled"] = group not in excluded_groups
                 sensor_list.extend(expanded)
                 _LOGGER.debug(
                     "[Enpal] Expanded inverter state into %d sensors (group=%s, base=%s)",
@@ -528,7 +563,9 @@ def add_calculated_current_sensors(sensors: List[Dict[str, Any]]) -> List[Dict[s
                 "value": str(round(current_value, 2)),
                 "unit": "A",
                 "device_class": "current",
-                "enabled": True,
+                # Inherit the registry default from the source sensor so a
+                # deselected PowerSensor group stays disabled.
+                "enabled": power_sensor.get("enabled", True),
                 "enpal_last_update": power_sensor.get("enpal_last_update") or voltage_sensor.get("enpal_last_update"),
                 "group": "PowerSensor",
             }
