@@ -448,6 +448,24 @@ SENSOR_KEY_GROUPS.update({
     "Voltage.Wallbox.Connector.1.Phase.C.Raw": "Wallbox",
 })
 
+# Keys evidenced by firmware 8.50 captures of Huawei systems (issue #148,
+# Graib's box). Groups match the 8.50 card layout so the pre-8.51 entity ids
+# are reused. Setting.Charge.From.Grid appeared in two cards and stays out.
+SENSOR_KEY_GROUPS.update({
+    "Battery.DeviceType": "Battery",
+    "Battery.Temperature.Raw": "Battery",
+    "Heatpump.DomesticHotWater.Temperature": "Heatpump",
+    "Heatpump.Energy.Consumption.Total.Lifetime": "Heatpump",
+    "Heatpump.Operation.Mode.Midea": "Heatpump",
+    "Heatpump.Outside.Temperature": "Heatpump",
+    "Heatpump.Power.Consumption.Total": "Heatpump",
+    "IoTDevice.HealthResponse.Json": "IoTEdgeDevice",
+    "Power.AC.Max": "Inverter",
+    "Power.AC.Total.Calculated": "PowerSensor",
+    "Voltage.String.1.Huawei": "Inverter",
+    "Voltage.String.2.Huawei": "Inverter",
+})
+
 # --- Date/Time Formats ---
 ENPAL_TIMESTAMP_FORMAT = "%m/%d/%Y %H:%M:%S"
 
