@@ -126,12 +126,59 @@ def _find_timestamp(strings: List[str], start: int) -> Optional[str]:
         s = strings[k]
         if s in _NOTE_MARKERS or _is_row_class(s):
             return None
-        if _is_ws(s) or s == "style" or s.endswith(";"):
+        if _is_ws(s) or s in _VALUE_END or s == "style" or s.endswith(";"):
             continue
         if _TIME_RE.search(s):
             return s
         return None
     return None
+
+
+def _parse_row_body(
+    strings: List[str], j: int
+) -> tuple:
+    """Parse value tokens and timestamp for the sensor key at index ``j``.
+
+    Returns ``(row, next_i)``.  ``row`` is ``None`` when the key carries no
+    readable value (note-only row, truncated frame, run into the next row).
+    """
+    n = len(strings)
+    # Collect value tokens (value, optional unit).  8.50 separates them
+    # with whitespace strings, 8.51 with css helper classes.
+    k = j + 1
+    if k < n and _is_ws(strings[k]):
+        k += 1  # single leading separator (8.50)
+    value_tokens: List[str] = []
+    end = None
+    while k < n:
+        s = strings[k]
+        if _is_ws(s) or s in _VALUE_END:
+            end = "value"
+            break
+        if s in _NOTE_MARKERS:
+            end = "note"
+            break
+        if _is_row_class(s):
+            end = "row"
+            break
+        if len(value_tokens) >= _MAX_VALUE_TOKENS:
+            end = "overflow"
+            break
+        value_tokens.append(s)
+        k += 1
+
+    if end != "value":
+        # Note-only row, truncated frame or run into the next row: no
+        # reading to apply.
+        return None, (k if end == "row" else k + 1)
+
+    row = {
+        "key": strings[j],
+        "value": value_tokens[0] if value_tokens else "",
+        "unit": value_tokens[1] if len(value_tokens) > 1 else None,
+        "timestamp": _find_timestamp(strings, k + 1),
+    }
+    return row, k + 1
 
 
 def extract_changed_rows(strings: List[str]) -> List[Dict[str, Optional[str]]]:
@@ -163,44 +210,36 @@ def extract_changed_rows(strings: List[str]) -> List[Dict[str, Optional[str]]]:
             i = j if _is_row_class(key) else j + 1
             continue
 
-        # Collect value tokens (value, optional unit).  8.50 separates them
-        # with whitespace strings, 8.51 with css helper classes.
-        k = j + 1
-        if k < n and _is_ws(strings[k]):
-            k += 1  # single leading separator (8.50)
-        value_tokens: List[str] = []
-        end = None
-        while k < n:
-            s = strings[k]
-            if _is_ws(s) or s in _VALUE_END:
-                end = "value"
-                break
-            if s in _NOTE_MARKERS:
-                end = "note"
-                break
-            if _is_row_class(s):
-                end = "row"
-                break
-            if len(value_tokens) >= _MAX_VALUE_TOKENS:
-                end = "overflow"
-                break
-            value_tokens.append(s)
-            k += 1
+        row, i = _parse_row_body(strings, j)
+        if row is not None:
+            rows.append(row)
 
-        if end != "value":
-            # Note-only row, truncated frame or run into the next row: no
-            # reading to apply.
-            i = k if end == "row" else k + 1
+    return rows
+
+
+def extract_initial_rows(
+    strings: List[str], known_keys
+) -> List[Dict[str, Optional[str]]]:
+    """Extract sensor rows from a full-page render (no ``dp-flash`` markers).
+
+    On firmware 8.51 the HTTP response of ``/deviceMessages`` contains only
+    the pre-rendered "Site Data" card; every device table arrives once as a
+    big initial RenderBatch right after the circuit starts.  Those rows render
+    with an empty css class, so :func:`extract_changed_rows` cannot see them.
+    Row starts are instead detected by exact match against ``known_keys``
+    (the dotted keys from ``SENSOR_KEY_GROUPS`` / ``SENSOR_KEY_ALIASES``),
+    which also keeps note texts and other dotted-looking strings out.
+    """
+    rows: List[Dict[str, Optional[str]]] = []
+    n = len(strings)
+    i = 0
+    while i < n:
+        if strings[i] not in known_keys:
+            i += 1
             continue
-
-        rows.append({
-            "key": key,
-            "value": value_tokens[0] if value_tokens else "",
-            "unit": value_tokens[1] if len(value_tokens) > 1 else None,
-            "timestamp": _find_timestamp(strings, k + 1),
-        })
-        i = k + 1
-
+        row, i = _parse_row_body(strings, i)
+        if row is not None:
+            rows.append(row)
     return rows
 
 

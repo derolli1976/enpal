@@ -13,14 +13,22 @@ from custom_components.enpal_webparser.api.render_batch import (
     extract_change_handler_ids,
     extract_changed_rows,
     extract_event_handlers,
+    extract_initial_rows,
     is_patchable_value,
 )
 from custom_components.enpal_webparser.api.websocket_client import EnpalWebSocketClient
 from custom_components.enpal_webparser.utils import parse_enpal_html_sensors, make_id
-from custom_components.enpal_webparser.const import DEFAULT_GROUPS
+from custom_components.enpal_webparser.const import (
+    DEFAULT_GROUPS,
+    SENSOR_KEY_ALIASES,
+    SENSOR_KEY_GROUPS,
+)
 
 FIXTURE_DIR = os.path.join(os.path.dirname(__file__), "fixtures")
 RENDER_BATCH_BIN = os.path.join(FIXTURE_DIR, "render_batch_sample.bin")
+RENDER_BATCH_851_INITIAL_BIN = os.path.join(
+    FIXTURE_DIR, "render_batch_851_initial.bin"
+)
 DEVICE_MESSAGES_HTML = os.path.join(FIXTURE_DIR, "deviceMessages.html")
 
 
@@ -304,6 +312,94 @@ def test_extract_changed_rows_851_layout():
     assert by_key["Inverter.Power.Total"]["value"] == "1373"
     assert by_key["Inverter.Power.Total"]["unit"] == "W"
     assert len(rows) == 3
+
+
+# ---------------------------------------------------------------------------
+# Firmware 8.51: initial full-page render (no dp-flash markers)
+# ---------------------------------------------------------------------------
+
+_KNOWN_KEYS = SENSOR_KEY_GROUPS.keys() | SENSOR_KEY_ALIASES.keys()
+
+
+def _load_initial_851_batch() -> bytes:
+    with open(RENDER_BATCH_851_INITIAL_BIN, "rb") as f:
+        return f.read()
+
+
+def test_extract_initial_rows_from_real_851_batch():
+    """The captured initial batch (issue #148 sniffer run) yields the full page."""
+    strings = parse_render_batch_strings(_load_initial_851_batch())
+    assert len(strings) > 1000
+
+    # The initial render carries no dp-flash rows at all ...
+    assert extract_changed_rows(strings) == []
+
+    # ... but the device tables are all there.  73 of the 129 known keys in
+    # this capture carry a real reading; the rest are note-only rows
+    # (colspan=3, "invalid"/"no value") of a box without an LTE modem.
+    rows = extract_initial_rows(strings, _KNOWN_KEYS)
+    by_key = {r["key"]: r for r in rows}
+    assert len(by_key) >= 70
+
+    assert by_key["Power.DC.Total"]["value"] == "905"
+    assert by_key["Power.DC.Total"]["unit"] == "W"
+    assert by_key["Power.DC.Total"]["timestamp"] == "14:54:54.03"
+
+    assert by_key["Status.Wallbox.Connected"]["value"] == "1"
+    assert by_key["Energy.Grid.Export.Day"]["value"] == "0.15"
+    assert by_key["Energy.Grid.Export.Day"]["unit"] == "kWh"
+
+    # Note-only rows (colspan / pi-note-cell right after the key) are skipped.
+    assert "SerialNumber.Battery.Unit.2" not in by_key
+    assert "Cpu.Load" not in by_key
+    assert "LTE.RSSI" not in by_key
+
+
+def test_extract_initial_rows_ignores_unknown_dotted_strings():
+    strings = [
+        "EnpalEsc.ExternalInterfaceLayer.LocalPage",  # not a sensor key
+        "Power.DC.Total", "905", "W", "   ", "text-nowrap",
+        "width: 1%;", "14:54:54.03",
+    ]
+    rows = extract_initial_rows(strings, _KNOWN_KEYS)
+    assert [r["key"] for r in rows] == ["Power.DC.Total"]
+
+
+def test_extract_rows_merges_initial_and_diff_rows():
+    """dp-flash rows win over full-render rows for the same key."""
+    client = EnpalWebSocketClient("http://box.local", groups=list(DEFAULT_GROUPS))
+    strings = [
+        # full-render row
+        "Power.DC.Total", "905", "W", "   ", "text-nowrap",
+        "width: 1%;", "14:54:54.03",
+        # dp-flash diff row for the same key with a newer value
+        "dp-flash", "Power.DC.Total", "910", "W", "   ", "text-nowrap",
+        "width: 1%;", "14:55:04.03",
+        # full-render-only row
+        "Status.Wallbox.Connected", "1", "   ", "text-nowrap",
+        "width: 1%;", "14:56:35.49",
+    ]
+    rows = {r["key"]: r for r in client._extract_rows(strings)}
+    assert rows["Power.DC.Total"]["value"] == "910"
+    assert rows["Status.Wallbox.Connected"]["value"] == "1"
+
+
+def test_initial_851_batch_populates_site_data_only_baseline():
+    """End to end: the captured initial batch fills an almost empty baseline."""
+    client = EnpalWebSocketClient("http://box.local", groups=list(DEFAULT_GROUPS))
+    client._set_baseline(_site_data_only_baseline())
+    before = len(client._baseline)
+
+    strings = parse_render_batch_strings(_load_initial_851_batch())
+    client._apply_diff(client._extract_rows(strings))
+
+    created = len(client._baseline) - before
+    assert created >= 60
+
+    dc = _find(client._baseline, "Power.DC.Total")
+    assert dc is not None
+    assert dc["group"] == "Inverter"
+    assert dc["value"] == "905"
 
 
 # ---------------------------------------------------------------------------
