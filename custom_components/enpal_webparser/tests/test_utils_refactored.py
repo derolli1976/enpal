@@ -44,10 +44,14 @@ def test_parse_enpal_html_sensors_returns_expected_sensors(sample_html):
         assert sensor["enabled"] is True
 
 def test_ignores_cards_not_in_groups(sample_html):
-    sensors = parse_enpal_html_sensors(sample_html, groups=["Wechselrichter"])
-    assert len(sensors) == 2
-    for s in sensors:
-        assert s["name"].startswith("Wechselrichter")
+    """Deselected groups are still parsed; their entities default to disabled."""
+    sensors = parse_enpal_html_sensors(
+        sample_html, groups=["Wechselrichter"], excluded_groups=["Batterie"]
+    )
+    assert len(sensors) == 3
+    by_group = {s["group"]: s for s in sensors}
+    assert by_group["Wechselrichter"]["enabled"] is True
+    assert by_group["Batterie"]["enabled"] is False
 
 def test_handles_invalid_timestamp_gracefully():
     html = '''

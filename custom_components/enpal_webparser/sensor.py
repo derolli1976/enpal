@@ -43,6 +43,7 @@ from homeassistant.helpers.update_coordinator import (
 from .entity_factory import build_sensor_entity
 
 from .utils import (
+    excluded_groups_from_options,
     make_id,
     parse_enpal_html_sensors
 )
@@ -117,10 +118,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     interval = entry.options.get("interval", DEFAULT_INTERVAL)
     timeout = entry.options.get("timeout", DEFAULT_TIMEOUT)
     groups = entry.options.get("groups", [])
+    excluded_groups = excluded_groups_from_options(entry.options)
     data_source = entry.options.get("data_source", "html")  # Default to HTML for backward compatibility
     
-    _LOGGER.info("[Enpal] Configuration - URL: %s, Interval: %s, Groups: %s, Data Source: %s", 
-                 url, interval, groups, data_source)
+    _LOGGER.info("[Enpal] Configuration - URL: %s, Interval: %s, Groups: %s, "
+                 "Disabled-by-default groups: %s, Data Source: %s",
+                 url, interval, groups, excluded_groups, data_source)
 
     # Create API client based on data source
     # Extract base URL (without /deviceMessages) for both clients
@@ -129,10 +132,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     
     if data_source == "websocket":
         _LOGGER.info("[Enpal] Using WebSocket client (push mode)")
-        api_client = EnpalWebSocketClient(base_url, groups=groups)
+        api_client = EnpalWebSocketClient(base_url, groups=groups, excluded_groups=excluded_groups)
     else:
         _LOGGER.info("[Enpal] Using HTML client")
-        api_client = EnpalHtmlClient(base_url, groups=groups)
+        api_client = EnpalHtmlClient(base_url, groups=groups, excluded_groups=excluded_groups)
 
     last_successful_data = []
 

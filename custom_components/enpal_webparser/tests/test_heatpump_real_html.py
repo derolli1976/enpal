@@ -19,15 +19,20 @@ def test_parse_real_heatpump_html():
     with open(html_path, 'r', encoding='utf-8') as f:
         html_content = f.read()
     
-    # Parse only Heatpump group
-    sensors = parse_enpal_html_sensors(html_content, groups=["Heatpump"])
-    
+    # Parse only Heatpump group; other groups are parsed too but disabled.
+    all_sensors = parse_enpal_html_sensors(
+        html_content, groups=["Heatpump"],
+        excluded_groups=[g for g in DEFAULT_GROUPS if g != "Heatpump"],
+    )
+    sensors = [s for s in all_sensors if s["group"] == "Heatpump"]
+    others = [s for s in all_sensors if s["group"] != "Heatpump"]
+
     # Verify we found sensors
     assert len(sensors) > 0, "Should find Heatpump sensors in the HTML"
-    
-    # Verify all sensors are in Heatpump group
-    for sensor in sensors:
-        assert sensor['group'] == 'Heatpump', f"Sensor {sensor['name']} should be in Heatpump group"
+
+    # Heatpump entities are enabled, all other known groups default to disabled.
+    assert all(s["enabled"] for s in sensors)
+    assert others and all(not s["enabled"] for s in others)
     
     # Check for expected sensors (note: no colon between group and sensor name)
     sensor_names = [s['name'] for s in sensors]
