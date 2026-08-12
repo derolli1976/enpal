@@ -16,6 +16,7 @@ import aiohttp
 import asyncio
 import json
 import logging
+import re
 import time
 from collections import deque
 from typing import Awaitable, Callable, Deque, Dict, List, Optional
@@ -73,12 +74,13 @@ _BATCH_DUMP_MAX_CHARS = 4000
 # the hidden rows. The DOM id suffix is the group name (showInternal_Battery).
 _TOGGLE_ID_PREFIXES = ("showUnsupported_", "showInternal_")
 
-# Synthetic checkbox clicks never succeeded on firmware 8.51: every recorded
-# attempt (issue #148 sniffer runs, 170+ clicks) was rejected server-side with
-# "There was an exception invoking 'DispatchEventAsync'", regardless of
-# handler id or interop reference. Disabled until the real browser click
-# protocol has been captured and understood (VPN session).
-_TOGGLES_ENABLED = False
+# Synthetic checkbox clicks were rejected on firmware 8.51 for a long time.
+# Root cause (verified against a live box through a real-browser capture,
+# issue #148): the event args contained a "type" field, which is not a
+# property of ChangeEventArgs, and the box's JSON deserialization rejects
+# unknown members. With plain {"value": true} every click is accepted.
+# MouseEventArgs (wallbox buttons) HAS a Type property, so those always worked.
+_TOGGLES_ENABLED = True
 
 # Never dispatch a checkbox click earlier than this after StartCircuit: a
 # dispatch into a still-starting circuit crashed it on firmware 8.51.
@@ -110,7 +112,7 @@ class EnpalWebSocketClient(EnpalApiClient):
         self.base_url = base_url.rstrip('/')
         self.groups = groups or [
             'Battery', 'Inverter', 'IoTEdgeDevice',
-            'PowerSensor', 'Wallbox', 'Site Data', 'Heatpump',
+            'PowerSensor', 'Wallbox', 'Site Data', 'Heatpump', 'ControlBox',
         ]
         self.ws: Optional[aiohttp.ClientWebSocketResponse] = None
         self.session: Optional[aiohttp.ClientSession] = None
@@ -650,10 +652,16 @@ class EnpalWebSocketClient(EnpalApiClient):
         created = 0
         for row in rows:
             value = row.get("value")
-            if not is_patchable_value(value):
-                continue
             raw_key = row["key"]
             key = SENSOR_KEY_ALIASES.get(raw_key, raw_key)
+            # Firmware 8.51 delivers the system-state bitfield as an HTML <ul>
+            # blob (>800 chars); it is expanded into its own sensors instead of
+            # being patched as a plain value.
+            if key == "Inverter.System.State":
+                created += self._apply_system_state_row(row)
+                continue
+            if not is_patchable_value(value):
+                continue
             indices = self._key_index.get(make_id(raw_key)) or self._key_index.get(make_id(key))
             if not indices:
                 # Unknown key: on firmware 8.51 the device rows never show up
@@ -695,6 +703,55 @@ class EnpalWebSocketClient(EnpalApiClient):
             _LOGGER.debug("[Enpal WebSocket] Incrementally patched %d sensor(s)", patched)
         if created:
             _LOGGER.info("[Enpal WebSocket] Created %d sensor(s) from RenderBatch rows", created)
+
+    def _apply_system_state_row(self, row: Dict) -> int:
+        """Expand an Inverter.System.State row into its split sensors.
+
+        On firmware 8.50 the HTML full scrape handled this via
+        ``expand_inverter_system_state``; on 8.51 the value only arrives over
+        the WebSocket, as HTML markup. Tags are stripped so the existing
+        parser (and entity ids) keep working. Returns the number of newly
+        created sensors.
+        """
+        from ..utils import make_id, expand_inverter_system_state
+        from ..const import SENSOR_KEY_GROUPS
+
+        group = SENSOR_KEY_GROUPS.get("Inverter.System.State")
+        if group is None or group not in self.groups:
+            return 0
+        value = row.get("value") or ""
+        if "Bits" not in value:
+            return 0
+        text = re.sub(r"<[^>]+>", " ", value)
+
+        created = 0
+        prefix = f"{group}: "
+        for sensor in expand_inverter_system_state(group, text, row.get("timestamp")):
+            # The HTML parser creates the same sensors but without a "group"
+            # field, so _set_baseline indexes them under the full name instead
+            # of the label. Look up (and register) both ids to stay compatible
+            # with a firmware 8.50 scrape baseline.
+            name = sensor["name"]
+            label = name[len(prefix):] if name.startswith(prefix) else name
+            ids = {make_id(name), make_id(label)}
+            indices = None
+            for sensor_id in ids:
+                indices = self._key_index.get(sensor_id)
+                if indices:
+                    break
+            if indices and len(indices) == 1:
+                target = self._baseline[indices[0]]
+                target["value"] = sensor["value"]
+                target["enpal_last_update"] = sensor["enpal_last_update"]
+            elif not indices:
+                sensor["group"] = group
+                sensor["raw_key"] = "Inverter.System.State"
+                idx = len(self._baseline)
+                self._baseline.append(sensor)
+                for sensor_id in ids:
+                    self._key_index.setdefault(sensor_id, []).append(idx)
+                created += 1
+        return created
 
     def _create_sensor_from_row(self, row: Dict) -> bool:
         """Add a baseline sensor for a RenderBatch row with an unknown key.
@@ -846,7 +903,9 @@ class EnpalWebSocketClient(EnpalApiClient):
             "eventName": "change",
             "eventFieldInfo": None,
         }
-        event_args = {"type": "change", "value": True}
+        # ChangeEventArgs has only a Value property; any extra field (e.g.
+        # "type") makes DispatchEventAsync throw on firmware 8.51.
+        event_args = {"value": True}
         args_json = json.dumps([event_descriptor, event_args])
         msg = [
             1, {}, None,  # fire-and-forget (response comes via JS.EndInvokeDotNet)

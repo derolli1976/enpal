@@ -402,6 +402,51 @@ def test_initial_851_batch_populates_site_data_only_baseline():
     assert dc["value"] == "905"
 
 
+def test_system_state_row_expands_into_split_sensors():
+    """The 8.51 <ul> system-state blob becomes the same split sensors as 8.50."""
+    client = EnpalWebSocketClient("http://box.local", groups=list(DEFAULT_GROUPS))
+    client._set_baseline(_site_data_only_baseline())
+
+    strings = parse_render_batch_strings(_load_initial_851_batch())
+    client._apply_diff(client._extract_rows(strings))
+
+    by_id = {make_id(s["name"]): s for s in client._baseline}
+    assert by_id["inverter_system_state_decimal"]["value"] == "6"
+    assert by_id["inverter_system_state_flags"]["value"] == (
+        "Grid-connected, Grid-connected normally"
+    )
+    assert by_id["inverter_system_state_standby"]["value"] == "off"
+    assert by_id["inverter_system_state_grid_connected"]["value"] == "on"
+    # No raw sensor with the oversized HTML blob as state.
+    for sensor in client._baseline:
+        assert len(str(sensor["value"])) <= 255
+
+    # A second apply patches in place instead of duplicating.
+    count = len(client._baseline)
+    client._apply_diff([{
+        "key": "Inverter.System.State",
+        "value": "<ul><li>Decimal: 1</li><li>Bits: 0000000001</li></ul>",
+        "unit": None,
+        "timestamp": "13:00:00.00",
+    }])
+    assert len(client._baseline) == count
+    assert by_id["inverter_system_state_decimal"]["value"] == "1"
+    assert by_id["inverter_system_state_standby"]["value"] == "on"
+    assert by_id["inverter_system_state_grid_connected"]["value"] == "off"
+
+
+def test_system_state_row_respects_group_selection():
+    client = EnpalWebSocketClient("http://box.local", groups=["Site Data"])
+    client._set_baseline(_site_data_only_baseline())
+    created = client._apply_system_state_row({
+        "key": "Inverter.System.State",
+        "value": "<ul><li>Decimal: 6</li><li>Bits: 0000000110</li></ul>",
+        "unit": None,
+        "timestamp": None,
+    })
+    assert created == 0
+
+
 # ---------------------------------------------------------------------------
 # Firmware 8.51: creating baseline sensors from RenderBatch rows
 # ---------------------------------------------------------------------------
@@ -725,6 +770,23 @@ def test_activate_next_toggle_one_per_batch_and_retry():
     asyncio.run(client._activate_next_toggle())
     assert len(sent) == 3
     assert '"eventHandlerId": 52' in sent[2][4][4]
+
+
+def test_checkbox_change_payload_matches_browser_format():
+    """ChangeEventArgs must be {"value": true} - any extra field (e.g. the
+    former "type": "change") makes the box reject the dispatch (issue #148)."""
+    import json as json_mod
+
+    client, sent, _ = _toggle_client_with_fake_ws()
+    asyncio.run(client._send_checkbox_change("showUnsupported_Battery", 42))
+
+    descriptor, event_args = json_mod.loads(sent[0][4][4])
+    assert descriptor == {
+        "eventHandlerId": 42,
+        "eventName": "change",
+        "eventFieldInfo": None,
+    }
+    assert event_args == {"value": True}
 
 
 def _toggle_client_with_fake_ws():
