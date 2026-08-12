@@ -16,8 +16,10 @@ import aiohttp
 import asyncio
 import json
 import logging
+import re
 import time
-from typing import Optional, Dict, List, Callable, Awaitable
+from collections import deque
+from typing import Awaitable, Callable, Deque, Dict, List, Optional
 
 from .base import EnpalApiClient
 from .protocol import (
@@ -29,7 +31,10 @@ from .protocol import (
 )
 from .render_batch import (
     parse_render_batch_strings,
+    extract_change_handler_ids,
     extract_changed_rows,
+    extract_event_handlers,
+    extract_initial_rows,
     is_patchable_value,
 )
 
@@ -49,6 +54,47 @@ _NUMERIC_DEVICE_CLASSES = frozenset({
     "frequency", "battery", "humidity", "pressure",
 })
 
+# JS calls whose .NET caller deserialises the result into a value type or
+# dereferences it. Answering those with null raises inside the circuit and the
+# box tears the connection down, so they get a plausible literal instead.
+_JS_CALL_RESULTS = {
+    "mudpopoverHelper.countProviders": "1",
+    "Radzen.createChart": '{"left":0,"top":0,"width":800,"height":400}',
+    "Radzen.createResizable": '{"left":0,"top":0,"width":800,"height":400}',
+}
+
+# Full string-table dumps of large RenderBatches, for protocol analysis.
+_BATCH_DUMP_LIMIT = 3
+_BATCH_DUMP_MIN_BYTES = 5000
+_BATCH_DUMP_MAX_CHARS = 4000
+
+# Firmware 8.51 hides some rows (e.g. Energy.Battery.Charge.Level) behind
+# per-card "Show unsupported values" / "Show internal values" checkboxes.
+# Those are circuit state, so our own circuit must switch them on to receive
+# the hidden rows. The DOM id suffix is the group name (showInternal_Battery).
+_TOGGLE_ID_PREFIXES = ("showUnsupported_", "showInternal_")
+
+# Synthetic checkbox clicks were rejected on firmware 8.51 for a long time.
+# Root cause (verified against a live box through a real-browser capture,
+# issue #148): the event args contained a "type" field, which is not a
+# property of ChangeEventArgs, and the box's JSON deserialization rejects
+# unknown members. With plain {"value": true} every click is accepted.
+# MouseEventArgs (wallbox buttons) HAS a Type property, so those always worked.
+_TOGGLES_ENABLED = True
+
+# Never dispatch a checkbox click earlier than this after StartCircuit: a
+# dispatch into a still-starting circuit crashed it on firmware 8.51.
+_TOGGLE_MIN_CIRCUIT_AGE = 5
+
+# A circuit death within this window after a click points at the click itself;
+# toggle activation is then disabled for the rest of the runtime.
+_TOGGLE_BLAME_WINDOW = 15
+
+# The box disposes and recreates every checkbox handler on each re-render
+# (~every 2-5 s), so a click can lose the race against the next batch and
+# fail harmlessly. Give up on a toggle after this many failed clicks.
+_TOGGLE_MAX_ATTEMPTS = 8
+
 
 class EnpalWebSocketClient(EnpalApiClient):
     """WebSocket client for the /deviceMessages Blazor page.
@@ -62,12 +108,15 @@ class EnpalWebSocketClient(EnpalApiClient):
     # Keep-alive ping interval (seconds) — matches Blazor Server expectation
     _PING_INTERVAL = 15
 
-    def __init__(self, base_url: str, groups: List[str] = None):
+    def __init__(self, base_url: str, groups: List[str] = None, excluded_groups: List[str] = None):
         self.base_url = base_url.rstrip('/')
         self.groups = groups or [
             'Battery', 'Inverter', 'IoTEdgeDevice',
-            'PowerSensor', 'Wallbox', 'Site Data', 'Heatpump',
+            'PowerSensor', 'Wallbox', 'Site Data', 'Heatpump', 'ControlBox',
         ]
+        # Deselected groups: their sensors are still parsed and created, but
+        # the resulting entities default to disabled in the registry.
+        self.excluded_groups = list(excluded_groups or [])
         self.ws: Optional[aiohttp.ClientWebSocketResponse] = None
         self.session: Optional[aiohttp.ClientSession] = None
         self.components: List[ComponentDescriptor] = []
@@ -81,6 +130,21 @@ class EnpalWebSocketClient(EnpalApiClient):
         # Cached full sensor list + index for incremental RenderBatch patching
         self._baseline: Optional[List[Dict]] = None
         self._key_index: Dict[str, List[int]] = {}
+        self._circuit_started: float = 0  # monotonic time of the last StartCircuit
+        self._recent_targets: Deque[str] = deque(maxlen=10)
+        self._batches_dumped: int = 0
+        # "Show unsupported/internal values" checkboxes (firmware 8.51)
+        self._toggle_handlers: Dict[str, int] = {}   # dom id -> event handler id
+        self._toggle_positions: Dict[str, int] = {}  # dom id -> index among onchange handlers
+        self._change_handler_count: int = 0  # onchange handlers in the initial batch
+        self._toggles_done: set = set()  # dom ids acknowledged by the box
+        self._toggle_attempts: Dict[str, int] = {}  # dom id -> failed click count
+        self._toggles_attempted: Dict[str, int] = {}  # dom id -> handler id last clicked
+        self._pending_toggle_calls: Dict[int, str] = {}  # dotnet call id -> dom id
+        self._toggles_disabled: bool = False  # survives reconnects on purpose
+        self._last_toggle_sent: float = 0
+        self._renderer_interop_id: int = 1  # DotNet object ref for DispatchEventAsync
+        self._dotnet_call_counter: int = 0
 
     # ------------------------------------------------------------------
     # Public API
@@ -150,10 +214,27 @@ class EnpalWebSocketClient(EnpalApiClient):
             self._read_task = asyncio.create_task(self._read_loop())
 
             # 7. Start Blazor circuit for /deviceMessages
+            self._circuit_started = time.monotonic()
+            self._batches_dumped = 0
+            self._toggle_handlers = {}
+            self._toggle_positions = {}
+            self._change_handler_count = 0
+            self._toggles_done = set()
+            self._toggle_attempts = {}
+            self._toggles_attempted = {}
+            self._pending_toggle_calls = {}
+            self._last_toggle_sent = 0
+            self._renderer_interop_id = 1
             await self._send_start_circuit()
             await asyncio.sleep(0.3)
             await self._send_update_root_components()
             await asyncio.sleep(0.5)
+
+            # The circuit can die during the sleeps above (the box then sends
+            # Close and drops the socket). Without this check the client would
+            # report connected=True with a dead read loop and never recover.
+            if self.ws.closed or (self._read_task and self._read_task.done()):
+                raise ValueError("Circuit closed during startup")
 
             self.connected = True
 
@@ -228,7 +309,13 @@ class EnpalWebSocketClient(EnpalApiClient):
         self.session = None
 
     def is_connected(self) -> bool:
-        return self.connected
+        return (
+            self.connected
+            and self.ws is not None
+            and not self.ws.closed
+            and self._read_task is not None
+            and not self._read_task.done()
+        )
 
     # ------------------------------------------------------------------
     # HTTP scrape helper
@@ -244,7 +331,7 @@ class EnpalWebSocketClient(EnpalApiClient):
                 raise ValueError(f"HTTP {resp.status} from {url}")
             html = await resp.text()
 
-        sensors = parse_enpal_html_sensors(html, self.groups)
+        sensors = parse_enpal_html_sensors(html, self.groups, self.excluded_groups)
         _LOGGER.debug("[Enpal WebSocket] Scraped %d sensors from /deviceMessages", len(sensors))
         return sensors
 
@@ -262,6 +349,7 @@ class EnpalWebSocketClient(EnpalApiClient):
                     await self._handle_messages(msg.data)
                 elif msg.type in (aiohttp.WSMsgType.ERROR, aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.CLOSING):
                     _LOGGER.warning("[Enpal WebSocket] Connection lost (type=%s), will reconnect on next poll", msg.type)
+                    self._maybe_disable_toggles("connection lost")
                     break
         except asyncio.CancelledError:
             pass
@@ -319,25 +407,42 @@ class EnpalWebSocketClient(EnpalApiClient):
             if msg_type == 3:
                 # [3, headers, invocationId, resultKind, result]
                 result_kind = msg[3] if len(msg) > 3 else None
+                inv_id = msg[2] if len(msg) > 2 else None
+                result = msg[4] if len(msg) > 4 else None
                 if result_kind == 1:
-                    inv_id = msg[2] if len(msg) > 2 else None
-                    result = msg[4] if len(msg) > 4 else None
                     _LOGGER.error("[Enpal WebSocket] Server error for invocation %s: %s", inv_id, result)
+                else:
+                    _LOGGER.debug(
+                        "[Enpal WebSocket] Completion for invocation %s: kind=%s result=%r",
+                        inv_id, result_kind, result,
+                    )
                 continue
 
             # Type 7: Close — server is shutting down the connection
             if msg_type == 7:
                 error = msg[1] if len(msg) > 1 else None
-                _LOGGER.warning("[Enpal WebSocket] Server sent Close: %s", error)
+                _LOGGER.warning(
+                    "[Enpal WebSocket] Server sent Close: %s (%.1fs after StartCircuit, "
+                    "last targets seen: %s)",
+                    error,
+                    time.monotonic() - self._circuit_started,
+                    ", ".join(self._recent_targets) or "none",
+                )
+                self._maybe_disable_toggles("server closed the circuit")
                 self.connected = False
                 continue
 
             # Type 1: Invocation
             if msg_type != 1 or len(msg) < 4:
+                _LOGGER.debug("[Enpal WebSocket] Unhandled message type %s: %r", msg_type, msg[:4])
                 continue
 
             target = msg[3] if len(msg) > 3 else None
             args = msg[4] if len(msg) > 4 else []
+            self._recent_targets.append(str(target))
+            _LOGGER.debug(
+                "[Enpal WebSocket] Invocation %s with %d arg(s)", target, len(args) if args else 0
+            )
 
             if target == "JS.RenderBatch":
                 # Acknowledge the render so the server keeps sending
@@ -350,7 +455,61 @@ class EnpalWebSocketClient(EnpalApiClient):
             elif target == "JS.BeginInvokeJS":
                 # Always acknowledge JS calls to keep circuit alive
                 if len(args) >= 1:
-                    await self._send_end_invoke_js(args[0])
+                    identifier = args[1] if len(args) > 1 else ""
+                    _LOGGER.debug(
+                        "[Enpal WebSocket] JS call %s(%s)",
+                        identifier,
+                        str(args[2])[:200] if len(args) > 2 else "",
+                    )
+                    # Only attachWebRendererInterop carries the renderer ref;
+                    # Radzen.createChart etc. pass their own DotNet object refs.
+                    if len(args) > 2 and isinstance(args[2], str):
+                        self._try_capture_renderer_interop_id(identifier, args[2])
+                    await self._send_end_invoke_js(
+                        args[0], _JS_CALL_RESULTS.get(identifier, "null")
+                    )
+
+            elif target == "JS.EndInvokeDotNet":
+                # Response to our DispatchEventAsync calls (checkbox toggles)
+                call_id = args[0] if args else None
+                success = args[1] if len(args) > 1 else False
+                try:
+                    call_id_int = int(call_id)
+                except (TypeError, ValueError):
+                    call_id_int = None
+                dom_id = self._pending_toggle_calls.pop(call_id_int, None)
+                if dom_id is None:
+                    continue
+                if success:
+                    self._toggles_done.add(dom_id)
+                    _LOGGER.info(
+                        "[Enpal WebSocket] Enabled page toggle '%s'", dom_id
+                    )
+                else:
+                    # Expected race: the box disposed the handler id before our
+                    # click arrived. The next batch delivers a fresh id.
+                    attempts = self._toggle_attempts.get(dom_id, 0)
+                    if attempts >= _TOGGLE_MAX_ATTEMPTS:
+                        _LOGGER.warning(
+                            "[Enpal WebSocket] Giving up on toggle '%s' after "
+                            "%d failed clicks: %s",
+                            dom_id, attempts,
+                            args[2] if len(args) > 2 else None,
+                        )
+                    else:
+                        _LOGGER.debug(
+                            "[Enpal WebSocket] Toggle '%s' click failed "
+                            "(attempt %d, retrying with fresh handler id): %s",
+                            dom_id, attempts,
+                            args[2] if len(args) > 2 else None,
+                        )
+
+            elif target == "JS.Error":
+                _LOGGER.warning(
+                    "[Enpal WebSocket] Circuit error reported by the box: %s",
+                    args[0] if args else None,
+                )
+                self._maybe_disable_toggles("the box reported a circuit error")
 
     async def _on_render_batch(self, batch_bytes=None):
         """React to a RenderBatch by patching the baseline from the binary diff.
@@ -363,8 +522,23 @@ class EnpalWebSocketClient(EnpalApiClient):
         if self._data_callback is None:
             return
 
+        strings: List[str] = []
+        rows: List[Dict] = []
+        if isinstance(batch_bytes, (bytes, bytearray)):
+            try:
+                strings = parse_render_batch_strings(bytes(batch_bytes))
+                rows = self._extract_rows(strings)
+            except Exception:
+                _LOGGER.exception("[Enpal WebSocket] RenderBatch decode failed")
+            self._log_batch(len(batch_bytes), strings, rows)
+            if _TOGGLES_ENABLED:
+                self._collect_toggle_handlers(bytes(batch_bytes))
+                await self._activate_next_toggle()
+
         # Seed the baseline if we have not scraped yet (a push can arrive
-        # before the coordinator's first poll completes).
+        # before the coordinator's first poll completes). On firmware 8.51 the
+        # scrape only carries the pre-rendered Site Data card; the device rows
+        # of this batch are applied on top right below.
         if self._baseline is None:
             try:
                 sensors = await self._scrape_and_parse()
@@ -372,15 +546,10 @@ class EnpalWebSocketClient(EnpalApiClient):
                 _LOGGER.exception("[Enpal WebSocket] Baseline scrape failed")
                 return
             self._set_baseline(sensors)
-            await self._push()
-            return
 
-        # Apply the incremental diff from the binary RenderBatch payload.
-        if isinstance(batch_bytes, (bytes, bytearray)):
+        if rows:
             try:
-                rows = extract_changed_rows(parse_render_batch_strings(bytes(batch_bytes)))
-                if rows:
-                    self._apply_diff(rows)
+                self._apply_diff(rows)
             except Exception:
                 _LOGGER.exception("[Enpal WebSocket] Incremental diff failed")
 
@@ -390,6 +559,43 @@ class EnpalWebSocketClient(EnpalApiClient):
             return
         self._last_push_time = now
         await self._push()
+
+    def _extract_rows(self, strings: List[str]) -> List[Dict]:
+        """All sensor rows of a batch: full-render rows plus dp-flash diffs.
+
+        Firmware 8.51 delivers the device tables once as a big initial render
+        (rows without ``dp-flash``) and afterwards as incremental diffs (rows
+        with ``dp-flash``). Both are scanned on every batch; where a key
+        appears in both, the dp-flash row wins.
+        """
+        from ..const import SENSOR_KEY_ALIASES, SENSOR_KEY_GROUPS
+
+        known_keys = SENSOR_KEY_GROUPS.keys() | SENSOR_KEY_ALIASES.keys()
+        merged: Dict[str, Dict] = {
+            row["key"]: row for row in extract_initial_rows(strings, known_keys)
+        }
+        for row in extract_changed_rows(strings):
+            merged[row["key"]] = row
+        return list(merged.values())
+
+    def _log_batch(self, size: int, strings: List[str], rows: List[Dict]) -> None:
+        """Log RenderBatch metrics, plus the string table for the first big ones."""
+        if not _LOGGER.isEnabledFor(logging.DEBUG):
+            return
+        _LOGGER.debug(
+            "[Enpal WebSocket] RenderBatch: %d bytes, %d strings, %d sensor row(s), "
+            "%d dotted key(s)",
+            size, len(strings), len(rows),
+            sum(1 for s in strings if "." in s and " " not in s and len(s) < 60),
+        )
+        if size < _BATCH_DUMP_MIN_BYTES or self._batches_dumped >= _BATCH_DUMP_LIMIT:
+            return
+        self._batches_dumped += 1
+        dump = " | ".join(s.strip() for s in strings if s.strip())
+        _LOGGER.debug(
+            "[Enpal WebSocket] RenderBatch string table %d/%d: %s",
+            self._batches_dumped, _BATCH_DUMP_LIMIT, dump[:_BATCH_DUMP_MAX_CHARS],
+        )
 
     async def _push(self) -> None:
         """Send the current baseline to the registered data callback."""
@@ -410,6 +616,15 @@ class EnpalWebSocketClient(EnpalApiClient):
         """
         from ..utils import make_id
 
+        # Carry over sensors created from RenderBatch rows.  On firmware 8.51
+        # the HTTP scrape does not contain the device rows, so a fresh scrape
+        # would silently drop them on every periodic poll.
+        if self._baseline:
+            known = {make_id(s.get("name", "")) for s in sensors}
+            for sensor in self._baseline:
+                if sensor.get("raw_key") and make_id(sensor.get("name", "")) not in known:
+                    sensors.append(sensor)
+
         self._baseline = sensors
         index: Dict[str, List[int]] = {}
         for i, sensor in enumerate(sensors):
@@ -419,7 +634,11 @@ class EnpalWebSocketClient(EnpalApiClient):
             prefix = f"{group}: "
             if group and name.startswith(prefix):
                 label = name[len(prefix):]
-            index.setdefault(make_id(label), []).append(i)
+            ids = {make_id(label)}
+            if sensor.get("raw_key"):
+                ids.add(make_id(sensor["raw_key"]))
+            for key_id in ids:
+                index.setdefault(key_id, []).append(i)
         self._key_index = index
 
     def _apply_diff(self, rows: List[Dict]) -> None:
@@ -430,17 +649,31 @@ class EnpalWebSocketClient(EnpalApiClient):
             normalize_value_and_unit,
             is_strict_number,
         )
-        from ..const import UNIT_DEVICE_CLASS_MAP, DEFAULT_UNITS
+        from ..const import UNIT_DEVICE_CLASS_MAP, DEFAULT_UNITS, SENSOR_KEY_ALIASES
 
         patched = 0
+        created = 0
         for row in rows:
             value = row.get("value")
+            raw_key = row["key"]
+            key = SENSOR_KEY_ALIASES.get(raw_key, raw_key)
+            # Firmware 8.51 delivers the system-state bitfield as an HTML <ul>
+            # blob (>800 chars); it is expanded into its own sensors instead of
+            # being patched as a plain value.
+            if key == "Inverter.System.State":
+                created += self._apply_system_state_row(row)
+                continue
             if not is_patchable_value(value):
                 continue
-            indices = self._key_index.get(make_id(row["key"]))
-            # Skip unknown keys (new sensors) and ambiguous cross-group keys;
-            # the periodic full scrape handles those correctly.
-            if not indices or len(indices) != 1:
+            indices = self._key_index.get(make_id(raw_key)) or self._key_index.get(make_id(key))
+            if not indices:
+                # Unknown key: on firmware 8.51 the device rows never show up
+                # in the HTTP scrape, so create the sensor from the row.
+                if self._create_sensor_from_row(row):
+                    created += 1
+                continue
+            # Ambiguous cross-group keys are left to the full scrape.
+            if len(indices) != 1:
                 continue
 
             sensor = self._baseline[indices[0]]
@@ -471,6 +704,274 @@ class EnpalWebSocketClient(EnpalApiClient):
 
         if patched:
             _LOGGER.debug("[Enpal WebSocket] Incrementally patched %d sensor(s)", patched)
+        if created:
+            _LOGGER.info("[Enpal WebSocket] Created %d sensor(s) from RenderBatch rows", created)
+
+    def _apply_system_state_row(self, row: Dict) -> int:
+        """Expand an Inverter.System.State row into its split sensors.
+
+        On firmware 8.50 the HTML full scrape handled this via
+        ``expand_inverter_system_state``; on 8.51 the value only arrives over
+        the WebSocket, as HTML markup. Tags are stripped so the existing
+        parser (and entity ids) keep working. Returns the number of newly
+        created sensors.
+        """
+        from ..utils import make_id, expand_inverter_system_state
+        from ..const import SENSOR_KEY_GROUPS
+
+        group = SENSOR_KEY_GROUPS.get("Inverter.System.State")
+        if group is None:
+            return 0
+        value = row.get("value") or ""
+        if "Bits" not in value:
+            return 0
+        text = re.sub(r"<[^>]+>", " ", value)
+
+        created = 0
+        enabled = group not in self.excluded_groups
+        prefix = f"{group}: "
+        for sensor in expand_inverter_system_state(group, text, row.get("timestamp")):
+            # The HTML parser creates the same sensors but without a "group"
+            # field, so _set_baseline indexes them under the full name instead
+            # of the label. Look up (and register) both ids to stay compatible
+            # with a firmware 8.50 scrape baseline.
+            name = sensor["name"]
+            label = name[len(prefix):] if name.startswith(prefix) else name
+            ids = {make_id(name), make_id(label)}
+            indices = None
+            for sensor_id in ids:
+                indices = self._key_index.get(sensor_id)
+                if indices:
+                    break
+            if indices and len(indices) == 1:
+                target = self._baseline[indices[0]]
+                target["value"] = sensor["value"]
+                target["enpal_last_update"] = sensor["enpal_last_update"]
+            elif not indices:
+                sensor["group"] = group
+                sensor["raw_key"] = "Inverter.System.State"
+                sensor["enabled"] = enabled
+                idx = len(self._baseline)
+                self._baseline.append(sensor)
+                for sensor_id in ids:
+                    self._key_index.setdefault(sensor_id, []).append(idx)
+                created += 1
+        return created
+
+    def _create_sensor_from_row(self, row: Dict) -> bool:
+        """Add a baseline sensor for a RenderBatch row with an unknown key.
+
+        The row carries no group, so it is restored from the static
+        ``SENSOR_KEY_GROUPS`` table. Keys without a known group land in
+        "Uncategorized" so the reading is available immediately; deselected
+        groups only make the entity default to disabled.
+        """
+        from ..utils import (
+            make_id,
+            friendly_name,
+            get_class_and_unit,
+            normalize_value_and_unit,
+        )
+        from ..const import (
+            UNIT_DEVICE_CLASS_MAP,
+            DEFAULT_UNITS,
+            DEVICE_CLASS_OVERRIDES,
+            SENSOR_KEY_ALIASES,
+            SENSOR_KEY_GROUPS,
+        )
+
+        raw_key = row["key"]
+        # Junk guard for the fallback: real sensor keys start with a letter
+        # (a misread row can yield numeric "keys" like "226.3").
+        if not raw_key or not raw_key[0].isalpha():
+            return False
+        group = SENSOR_KEY_GROUPS.get(raw_key, "Uncategorized")
+        key = SENSOR_KEY_ALIASES.get(raw_key, raw_key)
+
+        value = row.get("value")
+        unit_raw = row.get("unit")
+        combined = value if not unit_raw else f"{value} {unit_raw}"
+        unit, device_class = get_class_and_unit(combined, UNIT_DEVICE_CLASS_MAP)
+        value_clean, unit = normalize_value_and_unit(
+            combined, unit, device_class, DEFAULT_UNITS
+        )
+
+        sensor = {
+            "name": friendly_name(group, key),
+            "value": value_clean,
+            "unit": unit,
+            "device_class": device_class,
+            "enabled": group not in self.excluded_groups,
+            "enpal_last_update": row.get("timestamp"),
+            "group": group,
+            "raw_key": raw_key,
+        }
+        sensor_id = make_id(sensor["name"])
+        if sensor_id in DEVICE_CLASS_OVERRIDES:
+            sensor["device_class"] = DEVICE_CLASS_OVERRIDES[sensor_id]
+
+        idx = len(self._baseline)
+        self._baseline.append(sensor)
+        label = sensor["name"][len(f"{group}: "):]
+        for key_id in {make_id(label), make_id(raw_key)}:
+            self._key_index.setdefault(key_id, []).append(idx)
+        _LOGGER.debug(
+            "[Enpal WebSocket] Created sensor from RenderBatch: %s = %s %s",
+            sensor["name"], value_clean, unit or "",
+        )
+        return True
+
+    # ------------------------------------------------------------------
+    # Page toggles (firmware 8.51: "Show unsupported/internal values")
+    # ------------------------------------------------------------------
+
+    def _collect_toggle_handlers(self, raw: bytes) -> None:
+        """Track the current event handler IDs of the hidden-values checkboxes.
+
+        The box disposes and recreates every ``onchange`` handler on each
+        re-render.  Only the initial page batch carries ``id`` attributes, so
+        the position of each toggle among the ordered ``onchange`` handlers is
+        learned there.  Later diff batches carry the fresh handler ids in the
+        same DOM order (without ids); they are mapped back by position.
+        """
+        ordered = extract_change_handler_ids(raw)
+        named = {
+            dom_id: handler_id
+            for dom_id, handler_id in extract_event_handlers(raw).items()
+            if dom_id.startswith(_TOGGLE_ID_PREFIXES)
+            and dom_id.split("_", 1)[1] not in self.excluded_groups
+        }
+
+        if named:
+            # Batch with id attributes (initial page render): learn positions.
+            eid_to_pos = {eid: i for i, eid in enumerate(ordered)}
+            self._change_handler_count = len(ordered)
+            self._toggle_positions = {
+                dom_id: eid_to_pos[handler_id]
+                for dom_id, handler_id in named.items()
+                if handler_id in eid_to_pos
+            }
+            self._toggle_handlers.update(named)
+            _LOGGER.debug(
+                "[Enpal WebSocket] Learned %d toggle positions among %d change handlers",
+                len(self._toggle_positions), self._change_handler_count,
+            )
+        elif (
+            self._toggle_positions
+            and ordered
+            and len(ordered) == self._change_handler_count
+        ):
+            # Diff batch: same handler layout, fresh ids. Remap by position.
+            for dom_id, pos in self._toggle_positions.items():
+                self._toggle_handlers[dom_id] = ordered[pos]
+
+    async def _activate_next_toggle(self) -> None:
+        """Click one pending checkbox so hidden sensor rows get rendered.
+
+        Clicks are held back until the circuit is stable: the initial page
+        RenderBatch arrives while connect() is still running, and dispatching
+        into a starting circuit crashed it on firmware 8.51.
+
+        One toggle per RenderBatch, always with the freshest handler id. A
+        failed click (handler disposed in the meantime) is harmless and is
+        retried once the next batch delivers a new id, up to a retry limit.
+        """
+        if self._toggles_disabled or not self.connected:
+            return
+        if self.ws is None or self.ws.closed:
+            return
+        if time.monotonic() - self._circuit_started < _TOGGLE_MIN_CIRCUIT_AGE:
+            return
+        for dom_id, handler_id in self._toggle_handlers.items():
+            if dom_id in self._toggles_done:
+                continue
+            if self._toggle_attempts.get(dom_id, 0) >= _TOGGLE_MAX_ATTEMPTS:
+                continue
+            if self._toggles_attempted.get(dom_id) == handler_id:
+                continue  # wait for a fresh handler id before retrying
+            self._toggles_attempted[dom_id] = handler_id
+            self._toggle_attempts[dom_id] = self._toggle_attempts.get(dom_id, 0) + 1
+            try:
+                await self._send_checkbox_change(dom_id, handler_id)
+            except Exception:
+                _LOGGER.exception(
+                    "[Enpal WebSocket] Sending toggle '%s' failed", dom_id
+                )
+            return
+
+    async def _send_checkbox_change(self, dom_id: str, handler_id: int) -> None:
+        """Dispatch a change event (checked=true) for a checkbox handler."""
+        self._dotnet_call_counter += 1
+        call_id = self._dotnet_call_counter
+        self._pending_toggle_calls[call_id] = dom_id
+        self._last_toggle_sent = time.monotonic()
+
+        event_descriptor = {
+            "eventHandlerId": handler_id,
+            "eventName": "change",
+            "eventFieldInfo": None,
+        }
+        # ChangeEventArgs has only a Value property; any extra field (e.g.
+        # "type") makes DispatchEventAsync throw on firmware 8.51.
+        event_args = {"value": True}
+        args_json = json.dumps([event_descriptor, event_args])
+        msg = [
+            1, {}, None,  # fire-and-forget (response comes via JS.EndInvokeDotNet)
+            "BeginInvokeDotNetFromJS",
+            [str(call_id), None, "DispatchEventAsync", self._renderer_interop_id, args_json],
+        ]
+        await self._send_message(msg)
+        _LOGGER.debug(
+            "[Enpal WebSocket] Sent change event for '%s' (handler %d, call %d)",
+            dom_id, handler_id, call_id,
+        )
+
+    def _maybe_disable_toggles(self, reason: str) -> None:
+        """Disable toggle activation when a click likely killed the circuit.
+
+        The flag survives reconnects, so after one failed attempt the client
+        behaves like 3.0.3b6 for the rest of the runtime instead of crashing
+        the circuit on every reconnect.
+        """
+        if self._toggles_disabled or not self._last_toggle_sent:
+            return
+        if time.monotonic() - self._last_toggle_sent > _TOGGLE_BLAME_WINDOW:
+            return
+        self._toggles_disabled = True
+        _LOGGER.warning(
+            "[Enpal WebSocket] Disabling page-toggle activation: %s within %ds "
+            "after a checkbox click. Hidden rows (e.g. battery SOC) stay off.",
+            reason, _TOGGLE_BLAME_WINDOW,
+        )
+
+    def _try_capture_renderer_interop_id(self, identifier: str, args_json_str: str) -> None:
+        """Extract the renderer's DotNet object reference from JS.BeginInvokeJS.
+
+        Blazor calls attachWebRendererInterop with a DotNet object reference
+        (serialized as {"__dotNetObject": N}); DispatchEventAsync must be
+        invoked on that object. Other JS calls (e.g. Radzen.createChart) pass
+        their own DotNet object refs and must not overwrite the renderer ref.
+        """
+        if identifier != "Blazor._internal.attachWebRendererInterop":
+            return
+        if '"__dotNetObject"' not in args_json_str:
+            return
+        try:
+            parsed = json.loads(args_json_str)
+        except (json.JSONDecodeError, TypeError):
+            return
+        if not isinstance(parsed, list):
+            return
+        for item in parsed:
+            if isinstance(item, dict) and isinstance(item.get("__dotNetObject"), int):
+                obj_id = item["__dotNetObject"]
+                if obj_id > 0:
+                    self._renderer_interop_id = obj_id
+                    _LOGGER.debug(
+                        "[Enpal WebSocket] Captured renderer DotNet object ref: %d",
+                        obj_id,
+                    )
+                    return
 
     @staticmethod
     def _is_numeric_sensor(sensor: Dict) -> bool:
@@ -525,9 +1026,9 @@ class EnpalWebSocketClient(EnpalApiClient):
         msg = [1, {}, None, "OnRenderCompleted", [batch_id, None]]
         await self._send_message(msg)
 
-    async def _send_end_invoke_js(self, task_id: int):
-        """Acknowledge a JS invocation."""
-        result_json = f"[{task_id},true,null]"
+    async def _send_end_invoke_js(self, task_id: int, result: str = "null"):
+        """Acknowledge a JS invocation. ``result`` is raw JSON."""
+        result_json = f"[{task_id},true,{result}]"
         msg = [1, {}, None, "EndInvokeJSFromDotNet", [task_id, True, result_json]]
         await self._send_message(msg)
 
