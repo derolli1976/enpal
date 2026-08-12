@@ -33,6 +33,7 @@ from .render_batch import (
     extract_change_handler_ids,
     extract_changed_rows,
     extract_event_handlers,
+    extract_initial_rows,
     is_patchable_value,
 )
 
@@ -71,6 +72,13 @@ _BATCH_DUMP_MAX_CHARS = 4000
 # Those are circuit state, so our own circuit must switch them on to receive
 # the hidden rows. The DOM id suffix is the group name (showInternal_Battery).
 _TOGGLE_ID_PREFIXES = ("showUnsupported_", "showInternal_")
+
+# Synthetic checkbox clicks never succeeded on firmware 8.51: every recorded
+# attempt (issue #148 sniffer runs, 170+ clicks) was rejected server-side with
+# "There was an exception invoking 'DispatchEventAsync'", regardless of
+# handler id or interop reference. Disabled until the real browser click
+# protocol has been captured and understood (VPN session).
+_TOGGLES_ENABLED = False
 
 # Never dispatch a checkbox click earlier than this after StartCircuit: a
 # dispatch into a still-starting circuit crashed it on firmware 8.51.
@@ -514,15 +522,18 @@ class EnpalWebSocketClient(EnpalApiClient):
         if isinstance(batch_bytes, (bytes, bytearray)):
             try:
                 strings = parse_render_batch_strings(bytes(batch_bytes))
-                rows = extract_changed_rows(strings)
+                rows = self._extract_rows(strings)
             except Exception:
                 _LOGGER.exception("[Enpal WebSocket] RenderBatch decode failed")
             self._log_batch(len(batch_bytes), strings, rows)
-            self._collect_toggle_handlers(bytes(batch_bytes))
-            await self._activate_next_toggle()
+            if _TOGGLES_ENABLED:
+                self._collect_toggle_handlers(bytes(batch_bytes))
+                await self._activate_next_toggle()
 
         # Seed the baseline if we have not scraped yet (a push can arrive
-        # before the coordinator's first poll completes).
+        # before the coordinator's first poll completes). On firmware 8.51 the
+        # scrape only carries the pre-rendered Site Data card; the device rows
+        # of this batch are applied on top right below.
         if self._baseline is None:
             try:
                 sensors = await self._scrape_and_parse()
@@ -530,8 +541,6 @@ class EnpalWebSocketClient(EnpalApiClient):
                 _LOGGER.exception("[Enpal WebSocket] Baseline scrape failed")
                 return
             self._set_baseline(sensors)
-            await self._push()
-            return
 
         if rows:
             try:
@@ -545,6 +554,24 @@ class EnpalWebSocketClient(EnpalApiClient):
             return
         self._last_push_time = now
         await self._push()
+
+    def _extract_rows(self, strings: List[str]) -> List[Dict]:
+        """All sensor rows of a batch: full-render rows plus dp-flash diffs.
+
+        Firmware 8.51 delivers the device tables once as a big initial render
+        (rows without ``dp-flash``) and afterwards as incremental diffs (rows
+        with ``dp-flash``). Both are scanned on every batch; where a key
+        appears in both, the dp-flash row wins.
+        """
+        from ..const import SENSOR_KEY_ALIASES, SENSOR_KEY_GROUPS
+
+        known_keys = SENSOR_KEY_GROUPS.keys() | SENSOR_KEY_ALIASES.keys()
+        merged: Dict[str, Dict] = {
+            row["key"]: row for row in extract_initial_rows(strings, known_keys)
+        }
+        for row in extract_changed_rows(strings):
+            merged[row["key"]] = row
+        return list(merged.values())
 
     def _log_batch(self, size: int, strings: List[str], rows: List[Dict]) -> None:
         """Log RenderBatch metrics, plus the string table for the first big ones."""
