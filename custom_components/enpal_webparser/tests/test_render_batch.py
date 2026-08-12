@@ -369,12 +369,41 @@ def test_extract_initial_rows_from_real_851_batch():
 
 def test_extract_initial_rows_ignores_unknown_dotted_strings():
     strings = [
-        "EnpalEsc.ExternalInterfaceLayer.LocalPage",  # not a sensor key
+        "EnpalEsc.ExternalInterfaceLayer.LocalPage",  # assembly name, no row shape
         "Power.DC.Total", "905", "W", "   ", "text-nowrap",
         "width: 1%;", "14:54:54.03",
     ]
     rows = extract_initial_rows(strings, _KNOWN_KEYS)
     assert [r["key"] for r in rows] == ["Power.DC.Total"]
+
+
+def test_extract_initial_rows_detects_unmapped_keys_by_pattern():
+    """Keys missing from SENSOR_KEY_GROUPS are still extracted (issue #148,
+    hidden Huawei rows like Energy.Battery.Charge.Level.Unit.1)."""
+    strings = [
+        "Energy.Battery.Charge.Level.Unit.9", "61", "%", "   ", "text-nowrap",
+        "width: 1%;", "14:54:54.03",
+        # junk that must not become a row: version/number fragments
+        "v6.3", "226.3", "2.0.1.3.3b118",
+    ]
+    rows = extract_initial_rows(strings)
+    assert [r["key"] for r in rows] == ["Energy.Battery.Charge.Level.Unit.9"]
+    assert rows[0]["value"] == "61"
+    assert rows[0]["unit"] == "%"
+
+
+def test_parse_row_body_stops_at_next_key():
+    """A key-shaped string ends the value cell (rows without separators)."""
+    strings = [
+        "SerialNumber.Inverter", "HV1234567890",
+        "Battery.DeviceType", "Huawei", "   ", "text-nowrap",
+        "width: 1%;", "14:54:54.03",
+    ]
+    rows = extract_initial_rows(strings)
+    by_key = {r["key"]: r for r in rows}
+    # First row has no value terminator before the next key -> skipped.
+    assert "SerialNumber.Inverter" not in by_key
+    assert by_key["Battery.DeviceType"]["value"] == "Huawei"
 
 
 def test_extract_rows_merges_initial_and_diff_rows():

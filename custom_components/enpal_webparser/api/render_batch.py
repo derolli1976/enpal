@@ -54,6 +54,12 @@ _NOTE_MARKERS = {"pi-note-cell", "colspan"}
 # date-times; both contain an HH:MM:SS run.
 _TIME_RE = re.compile(r"\d{1,2}:\d{2}:\d{2}")
 
+# Sensor keys are dotted CamelCase identifiers ("Energy.Battery.Charge.Level",
+# "LTE.RSSI"). The uppercase first segment keeps version strings ("v6.3") and
+# numeric fragments ("226.3") out; non-row strings that happen to match (e.g.
+# the assembly name) fail the value-termination check in _parse_row_body.
+_KEY_RE = re.compile(r"^[A-Z][A-Za-z0-9]*(\.[A-Za-z0-9]+)+$")
+
 _MAX_VALUE_TOKENS = 4
 
 # Values longer than this are not sensor readings we want to patch
@@ -158,7 +164,8 @@ def _parse_row_body(
         if s in _NOTE_MARKERS:
             end = "note"
             break
-        if _is_row_class(s):
+        if _is_row_class(s) or _KEY_RE.match(s):
+            # Ran into the next row (sensor values never look like keys).
             end = "row"
             break
         if len(value_tokens) >= _MAX_VALUE_TOKENS:
@@ -218,23 +225,26 @@ def extract_changed_rows(strings: List[str]) -> List[Dict[str, Optional[str]]]:
 
 
 def extract_initial_rows(
-    strings: List[str], known_keys
+    strings: List[str], known_keys=None
 ) -> List[Dict[str, Optional[str]]]:
     """Extract sensor rows from a full-page render (no ``dp-flash`` markers).
 
     On firmware 8.51 the HTTP response of ``/deviceMessages`` contains only
     the pre-rendered "Site Data" card; every device table arrives once as a
-    big initial RenderBatch right after the circuit starts.  Those rows render
-    with an empty css class, so :func:`extract_changed_rows` cannot see them.
-    Row starts are instead detected by exact match against ``known_keys``
-    (the dotted keys from ``SENSOR_KEY_GROUPS`` / ``SENSOR_KEY_ALIASES``),
-    which also keeps note texts and other dotted-looking strings out.
+    big initial RenderBatch right after the circuit starts (and again after a
+    page toggle re-render). Those rows render with an empty css class, so
+    :func:`extract_changed_rows` cannot see them. Row starts are detected by
+    the dotted-key pattern; ``known_keys`` optionally accepts additional keys
+    that do not match it.
     """
     rows: List[Dict[str, Optional[str]]] = []
     n = len(strings)
     i = 0
     while i < n:
-        if strings[i] not in known_keys:
+        s = strings[i]
+        if not isinstance(s, str) or not (
+            _KEY_RE.match(s) or (known_keys is not None and s in known_keys)
+        ):
             i += 1
             continue
         row, i = _parse_row_body(strings, i)
