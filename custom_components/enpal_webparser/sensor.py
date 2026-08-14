@@ -44,6 +44,7 @@ from .entity_factory import build_sensor_entity
 
 from .utils import (
     excluded_groups_from_options,
+    firmware_supports_websocket,
     make_id,
     parse_enpal_html_sensors
 )
@@ -55,6 +56,7 @@ from .const import (
     DEFAULT_TIMEOUT,
     DEFAULT_URL,
     DOMAIN,
+    HTML_MODE_BROKEN_FIRMWARE,
     WALLBOX_MODE_SOURCE_CANDIDATES,
     WALLBOX_STATUS_SOURCE_CANDIDATES,
 )
@@ -80,6 +82,39 @@ def _find_wallbox_source(data, configured, candidates):
 
 def _wallbox_status_issue_id(entry: ConfigEntry) -> str:
     return f"wallbox_status_source_missing_{entry.entry_id}"
+
+
+def _html_mode_issue_id(entry: ConfigEntry) -> str:
+    return f"html_mode_unsupported_firmware_{entry.entry_id}"
+
+
+def _manage_html_mode_issue(hass, entry, firmware_version) -> None:
+    """Surface a repairs issue when HTML mode is used on firmware 8.51+.
+
+    Since firmware 8.51 the /deviceMessages page only pre-renders "Site Data";
+    all device tables arrive via WebSocket, so a fixed HTML data source leaves
+    almost every entity unavailable. The repair flow switches the entry to
+    WebSocket mode with one click.
+    """
+    issue_id = _html_mode_issue_id(entry)
+    if firmware_supports_websocket(firmware_version, HTML_MODE_BROKEN_FIRMWARE):
+        _LOGGER.warning(
+            "[Enpal] HTML mode configured but firmware %s no longer serves "
+            "device data over HTTP; raising repair issue",
+            firmware_version,
+        )
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            issue_id,
+            is_fixable=True,
+            severity=ir.IssueSeverity.ERROR,
+            translation_key="html_mode_unsupported_firmware",
+            translation_placeholders={"firmware_version": firmware_version},
+            data={"entry_id": entry.entry_id, "firmware_version": firmware_version},
+        )
+    else:
+        ir.async_delete_issue(hass, DOMAIN, issue_id)
 
 
 def _manage_wallbox_status_issue(hass, entry, data, status_source) -> None:
@@ -133,6 +168,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     if data_source == "websocket":
         _LOGGER.info("[Enpal] Using WebSocket client (push mode)")
         api_client = EnpalWebSocketClient(base_url, groups=groups, excluded_groups=excluded_groups)
+        # Entry may have just been switched away from HTML mode via the repair flow.
+        ir.async_delete_issue(hass, DOMAIN, _html_mode_issue_id(entry))
     else:
         _LOGGER.info("[Enpal] Using HTML client")
         api_client = EnpalHtmlClient(base_url, groups=groups, excluded_groups=excluded_groups)
@@ -154,7 +191,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             
             _LOGGER.debug("[Enpal] Fetched %d sensors from %s", len(sensors), result['source'])
             last_successful_data = sensors
-            
+
+            if isinstance(api_client, EnpalHtmlClient):
+                _manage_html_mode_issue(hass, entry, api_client.firmware_version)
+
             return sensors
 
         except Exception as e:

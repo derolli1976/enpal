@@ -61,3 +61,15 @@ def test_firmware_supports_websocket_unknown():
 def test_firmware_supports_websocket_custom_minimum():
     assert firmware_supports_websocket("8.46", min_version=(8, 40)) is True
     assert firmware_supports_websocket("8.30", min_version=(8, 40)) is False
+
+
+def test_html_mode_broken_threshold():
+    """HTML mode still works on 8.50 but breaks from 8.51 on."""
+    from custom_components.enpal_webparser.const import HTML_MODE_BROKEN_FIRMWARE
+
+    assert firmware_supports_websocket("8.50.1", HTML_MODE_BROKEN_FIRMWARE) is False
+    assert firmware_supports_websocket("8.51.0", HTML_MODE_BROKEN_FIRMWARE) is True
+    assert firmware_supports_websocket("9.0.0", HTML_MODE_BROKEN_FIRMWARE) is True
+    # Unknown firmware must not trigger the repair issue.
+    assert firmware_supports_websocket(None, HTML_MODE_BROKEN_FIRMWARE) is None
+

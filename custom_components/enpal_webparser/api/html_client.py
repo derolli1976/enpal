@@ -26,6 +26,8 @@ class EnpalHtmlClient(EnpalApiClient):
         self.excluded_groups = list(excluded_groups or [])
         self.session: aiohttp.ClientSession = None
         self.connected: bool = False
+        # Firmware version parsed from the last fetched page (e.g. "8.51.0").
+        self.firmware_version: str | None = None
     
     async def connect(self) -> bool:
         """
@@ -71,15 +73,16 @@ class EnpalHtmlClient(EnpalApiClient):
             
             # Import parse function - handle both package and standalone mode
             try:
-                from ..utils import parse_enpal_html_sensors
+                from ..utils import parse_enpal_html_sensors, parse_firmware_version
             except ImportError:
                 # Standalone mode - import directly
                 import sys
                 from pathlib import Path
                 parent_dir = Path(__file__).parent.parent
                 sys.path.insert(0, str(parent_dir))
-                from utils import parse_enpal_html_sensors
-            
+                from utils import parse_enpal_html_sensors, parse_firmware_version
+
+            self.firmware_version = parse_firmware_version(html)
             sensors = parse_enpal_html_sensors(html, self.groups, self.excluded_groups)
             
             _LOGGER.info(

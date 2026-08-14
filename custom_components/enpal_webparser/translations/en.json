@@ -66,6 +66,20 @@
     }
   },
   "issues": {
+    "html_mode_unsupported_firmware": {
+      "title": "HTML mode no longer works with firmware {firmware_version}",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Switch to WebSocket mode",
+            "description": "Your Enpal box runs firmware {firmware_version}. Since firmware 8.51 the HTML page no longer contains the device data, so all entities become unavailable in HTML mode. Confirm to switch the integration to WebSocket mode."
+          }
+        },
+        "abort": {
+          "entry_not_found": "The integration entry could no longer be found."
+        }
+      }
+    },
     "wallbox_status_source_missing": {
       "title": "Wallbox status sensor could not be detected",
       "fix_flow": {
