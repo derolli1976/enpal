@@ -30,6 +30,12 @@ DEFAULT_TIMEOUT = 30
 # wallbox control (Solar Rel. 8.50). Older firmware only supports HTML polling.
 WEBSOCKET_MIN_FIRMWARE = (8, 50)
 
+# Firmware (major, minor) from which the /deviceMessages HTML no longer
+# contains the device tables (Solar Rel. 8.51 pre-renders only "Site Data").
+# HTML mode stops working there; sensor.py raises a fixable repair issue that
+# switches the entry to WebSocket mode.
+HTML_MODE_BROKEN_FIRMWARE = (8, 51)
+
 DEFAULT_GROUPS = [
     "Wallbox",
     "Battery",

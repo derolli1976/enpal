@@ -75,6 +75,49 @@ class WallboxStatusSourceRepairFlow(RepairsFlow):
         return self.async_show_form(step_id="select", data_schema=schema)
 
 
+class HtmlModeUnsupportedRepairFlow(RepairsFlow):
+    """Switch the data source from HTML to WebSocket with one confirmation.
+
+    Raised when the entry is fixed to HTML mode but the box runs firmware
+    8.51+, where the /deviceMessages page no longer contains the device data.
+    """
+
+    def __init__(self, entry_id: str, firmware_version: str) -> None:
+        self._entry_id = entry_id
+        self._firmware_version = firmware_version
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> data_entry_flow.FlowResult:
+        return await self.async_step_confirm()
+
+    async def async_step_confirm(
+        self, user_input: dict[str, Any] | None = None
+    ) -> data_entry_flow.FlowResult:
+        entry = self.hass.config_entries.async_get_entry(self._entry_id)
+        if entry is None:
+            return self.async_abort(reason="entry_not_found")
+
+        if user_input is not None:
+            options = dict(entry.options)
+            options["data_source"] = "websocket"
+            self.hass.config_entries.async_update_entry(entry, options=options)
+            _LOGGER.info(
+                "[Enpal] Data source switched to websocket via repair flow "
+                "(firmware %s)",
+                self._firmware_version,
+            )
+            # The update listener reloads the entry; sensor.py deletes the
+            # issue when it sets up in WebSocket mode.
+            return self.async_create_entry(title="", data={})
+
+        return self.async_show_form(
+            step_id="confirm",
+            data_schema=vol.Schema({}),
+            description_placeholders={"firmware_version": self._firmware_version},
+        )
+
+
 async def async_create_fix_flow(
     hass: HomeAssistant,
     issue_id: str,
@@ -82,4 +125,7 @@ async def async_create_fix_flow(
 ) -> RepairsFlow:
     """Create the repair flow for an Enpal issue."""
     entry_id = (data or {}).get("entry_id", "")
+    if issue_id.startswith("html_mode_unsupported_firmware"):
+        firmware_version = (data or {}).get("firmware_version", "?")
+        return HtmlModeUnsupportedRepairFlow(entry_id, firmware_version)
     return WallboxStatusSourceRepairFlow(entry_id)
