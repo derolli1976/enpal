@@ -20,7 +20,13 @@ Eine Home Assistant Custom Integration zur lokalen Überwachung von Enpal Solara
 
 ---
 
-## 🆕 Neu in Version 3.1.0
+## 🆕 Neu in Version 3.1.1
+
+Steht die Integration fest auf dem HTML-Modus und die Enpal Box wird auf Firmware **8.51** aktualisiert, liefert die Box über HTTP keine Gerätedaten mehr. Bisher standen dann fast alle Entitäten auf "nicht verfügbar", ohne Hinweis auf die Ursache. Die Integration erkennt diese Situation jetzt und zeigt eine Reparatur-Meldung in Home Assistant. Ein Klick stellt den Datenquellen-Modus auf WebSocket um.
+
+Details in den [Release Notes 3.1.1](docs/RELEASE_NOTES_3.1.1.md).
+
+### Aus Version 3.1.0
 
 Version 3.1.0 stellt die volle Funktion auf Firmware **Solar Rel. 8.51** wieder her und macht die Integration robuster gegen künftige Umbauten durch Enpal.
 

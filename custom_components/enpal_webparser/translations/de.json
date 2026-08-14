@@ -66,6 +66,20 @@
     }
   },
   "issues": {
+    "html_mode_unsupported_firmware": {
+      "title": "HTML-Modus funktioniert mit Firmware {firmware_version} nicht mehr",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Auf WebSocket-Modus umstellen",
+            "description": "Deine Enpal Box läuft mit Firmware {firmware_version}. Ab Firmware 8.51 enthält die HTML-Seite keine Gerätedaten mehr. Im HTML-Modus sind deshalb fast alle Entitäten nicht verfügbar. Bestätige, um die Integration auf den WebSocket-Modus umzustellen."
+          }
+        },
+        "abort": {
+          "entry_not_found": "Der Integrations-Eintrag wurde nicht mehr gefunden."
+        }
+      }
+    },
     "wallbox_status_source_missing": {
       "title": "Wallbox-Status-Sensor konnte nicht erkannt werden",
       "fix_flow": {
