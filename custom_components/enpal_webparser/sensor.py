@@ -49,7 +49,7 @@ from .utils import (
     parse_enpal_html_sensors
 )
 
-from .api import EnpalWebSocketClient, EnpalHtmlClient, EnpalApiClient
+from .api import EnpalWebSocketClient, EnpalHtmlClient, EnpalInfluxClient, EnpalApiClient
 
 from .const import (
     DEFAULT_INTERVAL,
@@ -117,19 +117,21 @@ def _manage_html_mode_issue(hass, entry, firmware_version) -> None:
         ir.async_delete_issue(hass, DOMAIN, issue_id)
 
 
-def _manage_wallbox_status_issue(hass, entry, data, status_source) -> None:
+def _manage_wallbox_status_issue(hass, entry, data, status_source, data_source=None) -> None:
     """Surface a repairs issue when the wallbox status source can't be resolved.
 
     Only raised when the box actually exposes Wallbox-group sensors (so the data
     is there but the name did not match any auto-detect candidate). In that case
     the user can pick the correct sensor via the repair flow, which writes it to
-    the ``wallbox_status_source`` option.
+    the ``wallbox_status_source`` option. Not raised in InfluxDB mode: the
+    database only stores numeric series, the status string legitimately comes
+    from the Blazor fallback there.
     """
     issue_id = _wallbox_status_issue_id(entry)
     has_wallbox_sensors = any(
         "wallbox" in make_id(s.get("name", "")) for s in (data or [])
     )
-    if status_source is None and has_wallbox_sensors:
+    if status_source is None and has_wallbox_sensors and data_source != "influxdb":
         _LOGGER.warning(
             "[Enpal] Wallbox enabled but no status source matched; raising repair issue"
         )
@@ -169,6 +171,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         _LOGGER.info("[Enpal] Using WebSocket client (push mode)")
         api_client = EnpalWebSocketClient(base_url, groups=groups, excluded_groups=excluded_groups)
         # Entry may have just been switched away from HTML mode via the repair flow.
+        ir.async_delete_issue(hass, DOMAIN, _html_mode_issue_id(entry))
+    elif data_source == "influxdb":
+        _LOGGER.info("[Enpal] Using InfluxDB client (expert mode)")
+        api_client = EnpalInfluxClient(
+            base_url,
+            token=entry.options.get("influx_token", ""),
+            org=entry.options.get("influx_org", ""),
+            bucket=entry.options.get("influx_bucket", "solar"),
+            excluded_groups=excluded_groups,
+        )
         ir.async_delete_issue(hass, DOMAIN, _html_mode_issue_id(entry))
     else:
         _LOGGER.info("[Enpal] Using HTML client")
@@ -306,7 +318,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
             WALLBOX_STATUS_SOURCE_CANDIDATES,
         )
 
-        _manage_wallbox_status_issue(hass, entry, coordinator.data, status_source)
+        _manage_wallbox_status_issue(hass, entry, coordinator.data, status_source, data_source)
 
         if mode_source or status_source:
             _LOGGER.info(

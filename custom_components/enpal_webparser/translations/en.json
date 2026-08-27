@@ -29,7 +29,10 @@
           "interval": "Polling interval (in seconds) - Intervals below 60 seconds are not recommended!",
           "timeout": "HTTP timeout (in seconds, 10-120) - Increase if sensors frequently become unavailable",
           "groups": "Select sensor groups",
-          "use_wallbox": "Enable Wallbox control (WebSocket mode: direct connection, HTML mode: requires Wallbox add-on)"
+          "use_wallbox": "Enable Wallbox control (WebSocket mode: direct connection, HTML mode: requires Wallbox add-on)",
+          "influx_token": "InfluxDB access token (only for the InfluxDB data source, available from Enpal on request)",
+          "influx_org": "InfluxDB organisation (default: enpal)",
+          "influx_bucket": "InfluxDB bucket (default: solar)"
         }
       }
     },
@@ -37,7 +40,9 @@
       "invalid_format": "Invalid URL - it must start with http:// and contain a valid IP address or hostname.",
       "unreachable": "The URL could not be reached - please check the connection and address.",
       "wallbox_unreachable": "The Wallbox API is not reachable. Make sure the add-on is running and accessible! Test: http://Home-Assistant-IP-ADDRESS:36725/wallbox/status",
-      "no_devices_found": "No Enpal devices found on your network. Please use manual setup."
+      "no_devices_found": "No Enpal devices found on your network. Please use manual setup.",
+      "influx_token_required": "The InfluxDB data source requires an access token. Open a ticket via the Enpal chatbot in the Enpal app and request token and organisation. The input fields then appear at the bottom of the form.",
+      "influx_unreachable": "The box's InfluxDB is not reachable or token/organisation/bucket are wrong. Check the values and that the box is powered on."
     },
     "abort": {
       "already_configured": "This device is already configured"
@@ -55,14 +60,19 @@
           "groups": "Select sensor groups",
           "use_wallbox": "Enable Wallbox control (WebSocket mode: direct connection, HTML mode: requires Wallbox add-on)",
           "wallbox_mode_source": "Wallbox charge mode sensor (firmware 8.50+) - leave on Auto-detect unless the wrong sensor is used",
-          "wallbox_status_source": "Wallbox status sensor (firmware 8.50+) - leave on Auto-detect unless the wrong sensor is used"
+          "wallbox_status_source": "Wallbox status sensor (firmware 8.50+) - leave on Auto-detect unless the wrong sensor is used",
+          "influx_token": "InfluxDB access token (only for the InfluxDB data source, available from Enpal on request)",
+          "influx_org": "InfluxDB organisation (default: enpal)",
+          "influx_bucket": "InfluxDB bucket (default: solar)"
         }
       }
     },
     "error": {
       "invalid_format": "Invalid URL - it must start with http:// and contain a valid IP address or hostname.",
       "unreachable": "The URL could not be reached - please check the connection and address.",
-      "wallbox_unreachable": "The Wallbox API is not reachable. Make sure the add-on is running and accessible! Test: http://Home-Assistant-IP-ADDRESS:36725/wallbox/status"
+      "wallbox_unreachable": "The Wallbox API is not reachable. Make sure the add-on is running and accessible! Test: http://Home-Assistant-IP-ADDRESS:36725/wallbox/status",
+      "influx_token_required": "The InfluxDB data source requires an access token. Open a ticket via the Enpal chatbot in the Enpal app and request token and organisation.",
+      "influx_unreachable": "The box's InfluxDB is not reachable or token/organisation/bucket are wrong. Check the values and that the box is powered on."
     }
   },
   "issues": {

@@ -20,7 +20,11 @@ Eine Home Assistant Custom Integration zur lokalen Überwachung von Enpal Solara
 
 ---
 
-## 🆕 Neu in Version 3.1.2
+## 🆕 Neu in Version 3.2.0b1 (Beta)
+
+Neue Datenquelle **InfluxDB** (Experten-Option): Die Integration kann die Messwerte direkt aus der Datenbank der Enpal Box lesen, unabhängig von der Weboberfläche. Dafür wird ein Zugriffstoken benötigt, den Enpal auf Anfrage über den Chatbot in der Enpal App mitteilt. Details im Abschnitt [Datenquellen](#-datenquellen-websocket-html-oder-influxdb) und in den [Release Notes 3.2.0b1](docs/RELEASE_NOTES_3.2.0b1.md).
+
+### Aus Version 3.1.2
 
 Bugfixes für Firmware **Solar Rel. 8.51.1**: Der Wallbox-Status wird wieder erkannt (die Box liefert ihn jetzt als "Connector Charging" statt "Status Charging"), die Warnungs-Flut "No suitable DC power sensor found" auf FoxESS-Systemen ist behoben und `sensor.inverter_system_state` liefert wieder einen Wert.
 
@@ -131,9 +135,9 @@ Die Integration funktioniert **nur**, wenn die Enpal Box eine lokale Weboberflä
 
 ---
 
-## 🔀 Datenquellen: WebSocket oder HTML
+## 🔀 Datenquellen: WebSocket, HTML oder InfluxDB
 
-Die Integration kennt zwei Wege, um Daten von der Enpal Box zu lesen. Die Auswahl triffst du im Setup-Assistenten unter **Datenquelle**.
+Die Integration kennt drei Wege, um Daten von der Enpal Box zu lesen. Die Auswahl triffst du im Setup-Assistenten unter **Datenquelle**.
 
 ### WebSocket-Modus (Echtzeit, Firmware 8.50)
 Die Integration nutzt die native Schnittstelle der Enpal Box. Das ist dieselbe Technik, die auch die Weboberfläche intern verwendet.
@@ -149,10 +153,23 @@ Die Integration ruft im eingestellten Intervall die Seite `http://<ENPAL-IP>/dev
 - Funktioniert auch auf Boxen ohne WebSocket-Unterstützung.
 - Die Wallbox-Steuerung läuft über ein separates Add-on bzw. die Wallbox App.
 
+### InfluxDB-Modus (Experten-Option, Token erforderlich)
+Auf der Enpal Box läuft eine InfluxDB, in die die Box ihre Messwerte schreibt. Die Integration kann die Werte im eingestellten Intervall direkt aus dieser Datenbank lesen.
+
+- Unabhängig von der Weboberfläche der Box. Firmware-Umbauten an der Webseite betreffen diesen Modus nicht.
+- Gleiche Entity-IDs wie im WebSocket-Modus. Ein Wechsel der Datenquelle erzeugt keine neuen Entitäten.
+- Die Wallbox wird wie im WebSocket-Modus nativ gesteuert, ohne Add-on.
+- Einschränkung: Die Datenbank enthält nur Zahlenwerte. Textsensoren wie Seriennummern fehlen, der Wallbox-Status kommt weiterhin über die Weboberfläche.
+
+**So bekommst du den Zugriffstoken:** Öffne ein Ticket über den **Enpal Chatbot in der Enpal App** und frage den InfluxDB-Zugriffstoken und die Organisation für deine Box an. Die Organisation ist in der Regel `enpal`, der Bucket heißt `solar`. Beide Werte sind im Setup bereits vorbelegt.
+
+**Einrichtung:** Wähle im Setup oder in den Optionen die Datenquelle "InfluxDB". Nach dem Speichern erscheinen die Eingabefelder für Token, Organisation und Bucket. Die Integration prüft die Verbindung beim Speichern.
+
 ### Auswahl der Datenquelle
-- **Auto-detect (empfohlen):** Prüft, ob WebSocket verfügbar ist, und fällt im Zweifel auf HTML-Polling zurück.
+- **Auto-detect (empfohlen):** Prüft, ob WebSocket verfügbar ist, und fällt im Zweifel auf HTML-Polling zurück. InfluxDB wird nie automatisch gewählt.
 - **WebSocket (Echtzeit):** Erzwingt die WebSocket-Verbindung.
 - **HTML-Polling (Legacy):** Erzwingt die bisherige Methode.
+- **InfluxDB (Experte):** Liest direkt aus der Datenbank der Box. Erfordert den Zugriffstoken von Enpal.
 
 ---
 

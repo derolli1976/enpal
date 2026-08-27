@@ -78,8 +78,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         data_source = entry.options.get("data_source", "html")
         enpal_base_url = _get_enpal_base_url(entry.options)
 
-        if data_source == "websocket":
-            # Native Blazor mode: connect directly to Enpal Box /wallbox page
+        if data_source in ("websocket", "influxdb"):
+            # Native Blazor mode: connect directly to Enpal Box /wallbox page.
+            # InfluxDB mode also controls the wallbox natively - the database
+            # only provides sensor values, not control.
             wallbox_client = WallboxApiClient(
                 hass,
                 enpal_base_url=enpal_base_url,
