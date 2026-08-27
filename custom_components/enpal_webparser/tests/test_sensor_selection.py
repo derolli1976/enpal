@@ -216,6 +216,55 @@ class TestCumulativeEnergySensorSelection:
             # Should NOT match any of these wrong sensors
             assert sensor._active_source_uid is None
             mock_logger.warning.assert_called_once()
+
+    def test_source_found_on_later_update(self, mock_hass, mock_coordinator):
+        """Sensors arriving after setup are picked up on a later update.
+
+        On firmware 8.51 the first fetch only carries the Site Data card; the
+        inverter sensors arrive a few seconds later via WebSocket push
+        (issue #177). The warning must be logged only once, not per update.
+        """
+        mock_coordinator.data = [
+            {"name": "Site Data: Power Consumption Total", "value": "9000", "timestamp": "01/01/2024 12:00:00"},
+        ]
+
+        with patch('custom_components.enpal_webparser.sensor._LOGGER') as mock_logger:
+            sensor = create_sensor_with_mocked_state(
+                mock_hass, mock_coordinator, ["Inverter: Power DC Total (Huawei)"]
+            )
+            sensor._value = 0.0
+            sensor._handle_coordinator_update()
+            sensor._handle_coordinator_update()
+            sensor._handle_coordinator_update()
+
+            # No source yet, warning logged exactly once despite three updates
+            assert sensor._active_source_uid is None
+            mock_logger.warning.assert_called_once()
+
+            # FoxESS box: the generic DC sensor appears via WebSocket push
+            mock_coordinator.data = [
+                {"name": "Site Data: Power Consumption Total", "value": "9000", "timestamp": "01/01/2024 12:00:00"},
+                {"name": "Inverter: Power DC Total", "value": "5000", "timestamp": "01/01/2024 12:00:05"},
+            ]
+            sensor._handle_coordinator_update()
+
+            assert sensor._active_source_uid == "inverter_power_dc_total"
+            mock_logger.warning.assert_called_once()
+
+    def test_manufacturer_specific_beats_generic(self, mock_hass, mock_coordinator):
+        """Manufacturer-specific sensors win over generic even without being a candidate."""
+        mock_coordinator.data = [
+            {"name": "Inverter: Power DC Total", "value": "5000", "timestamp": "01/01/2024 12:00:00"},
+            {"name": "Inverter: Power DC Total (SMA)", "value": "5100", "timestamp": "01/01/2024 12:00:00"},
+        ]
+
+        sensor = create_sensor_with_mocked_state(
+            mock_hass, mock_coordinator, ["Inverter: Power DC Total (Huawei)"]
+        )
+        sensor._handle_coordinator_update()
+
+        assert sensor._active_source_uid == "inverter_power_dc_total_sma"
+
     
     def test_multiple_matching_sensors_first_wins(self, mock_hass, mock_coordinator):
         """Test that first matching sensor in priority order is selected.

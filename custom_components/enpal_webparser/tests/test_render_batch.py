@@ -458,6 +458,12 @@ def test_system_state_row_expands_into_split_sensors():
     )
     assert by_id["inverter_system_state_standby"]["value"] == "off"
     assert by_id["inverter_system_state_grid_connected"]["value"] == "on"
+    # The base sensor keeps its historic entity id and a truncated, tag-free
+    # value, like the 8.50 HTML parser (issue #178).
+    base = by_id["inverter_system_state"]
+    assert base["value"].startswith("Decimal: 6")
+    assert "<" not in base["value"]
+    assert len(base["value"]) <= 240
     # No raw sensor with the oversized HTML blob as state.
     for sensor in client._baseline:
         assert len(str(sensor["value"])) <= 255
@@ -474,6 +480,7 @@ def test_system_state_row_expands_into_split_sensors():
     assert by_id["inverter_system_state_decimal"]["value"] == "1"
     assert by_id["inverter_system_state_standby"]["value"] == "on"
     assert by_id["inverter_system_state_grid_connected"]["value"] == "off"
+    assert by_id["inverter_system_state"]["value"].startswith("Decimal: 1")
 
 
 def test_system_state_row_respects_group_selection():

@@ -293,10 +293,13 @@ class WallboxBlazorClient:
         if status:
             self._status = status
 
-        # Fallback: if we never got any status yet, ensure WebSocket is up
-        # so the initial RenderBatch seeds the values.
-        if self._mode is None and self._status is None:
-            if not await self.ensure_fresh_connection():
+        # Since firmware 8.51.1 the /wallbox page is no longer pre-rendered,
+        # so the HTTP poll comes back empty. The values then only refresh via
+        # WebSocket RenderBatches, so keep that connection alive (reconnects
+        # when stale). Also covers the initial seeding before the first batch.
+        if mode is None or status is None:
+            connected = await self.ensure_fresh_connection()
+            if not connected and self._mode is None and self._status is None:
                 return None
 
         return {
@@ -565,47 +568,34 @@ class WallboxBlazorClient:
 
     @staticmethod
     def _extract_status_text(data: bytes) -> tuple:
-        """Extract 'Mode X' and 'Status Y' from RenderBatch binary data."""
+        """Extract mode and status from RenderBatch binary (or HTML) data.
+
+        The mode is rendered as 'Mode <X>'. The status label depends on the
+        firmware: 'Status <Y>' up to 8.51.0, 'Connector <Y>' since 8.51.1.
+        In RenderBatch payloads the value can sit in a separate string-table
+        entry, so non-alpha bytes between label and value are skipped.
+        """
         text = data.decode('utf-8', errors='replace')
-        mode = None
-        status = None
 
-        valid_modes = {'Eco', 'Solar', 'Full', 'Smart', 'Fast'}
+        def word_after(label: str, min_len: int = 1, valid: Optional[set] = None) -> Optional[str]:
+            idx = 0
+            while True:
+                idx = text.find(label, idx)
+                if idx < 0:
+                    return None
+                after = text[idx + len(label):idx + len(label) + 25]
+                word = ''
+                for c in after:
+                    if c.isalpha():
+                        word += c
+                    elif word:
+                        break
+                if len(word) >= min_len and (valid is None or word in valid):
+                    return word
+                idx += len(label)
 
-        idx = 0
-        while True:
-            idx = text.find('Mode ', idx)
-            if idx < 0:
-                break
-            after = text[idx + 5:idx + 25]
-            word = ''
-            for c in after:
-                if c.isalpha():
-                    word += c
-                elif word:
-                    break
-            if word in valid_modes:
-                mode = word
-                break
-            idx += 5
-
-        idx = 0
-        while True:
-            idx = text.find('Status ', idx)
-            if idx < 0:
-                break
-            after = text[idx + 7:idx + 30]
-            word = ''
-            for c in after:
-                if c.isalpha():
-                    word += c
-                elif word:
-                    break
-            if word and len(word) > 2:
-                status = word
-                break
-            idx += 7
-
+        mode = word_after('Mode ', valid={'Eco', 'Solar', 'Full', 'Smart', 'Fast'})
+        status = word_after('Status ', min_len=3) or word_after('Connector ', min_len=3)
         return mode, status
 
     # ------------------------------------------------------------------

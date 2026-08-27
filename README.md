@@ -20,7 +20,13 @@ Eine Home Assistant Custom Integration zur lokalen Überwachung von Enpal Solara
 
 ---
 
-## 🆕 Neu in Version 3.1.1
+## 🆕 Neu in Version 3.1.2
+
+Bugfixes für Firmware **Solar Rel. 8.51.1**: Der Wallbox-Status wird wieder erkannt (die Box liefert ihn jetzt als "Connector Charging" statt "Status Charging"), die Warnungs-Flut "No suitable DC power sensor found" auf FoxESS-Systemen ist behoben und `sensor.inverter_system_state` liefert wieder einen Wert.
+
+Details in den [Release Notes 3.1.2](docs/RELEASE_NOTES_3.1.2.md).
+
+### Aus Version 3.1.1
 
 Steht die Integration fest auf dem HTML-Modus und die Enpal Box wird auf Firmware **8.51** aktualisiert, liefert die Box über HTTP keine Gerätedaten mehr. Bisher standen dann fast alle Entitäten auf "nicht verfügbar", ohne Hinweis auf die Ursache. Die Integration erkennt diese Situation jetzt und zeigt eine Reparatur-Meldung in Home Assistant. Ein Klick stellt den Datenquellen-Modus auf WebSocket um.
 

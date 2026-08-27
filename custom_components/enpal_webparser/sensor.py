@@ -278,49 +278,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         entities.append(build_sensor_entity(sensor_dict, coordinator, use_wallbox=use_wallbox))
 
 
-    # Create cumulative energy sensor with smart fallback for different inverter types
-    
-    source_sensor = None
-    available_sensor_names = [s.get("name", "") for s in coordinator.data]
-    
-    # Priority 1: Try Huawei-specific sensor first
-    if "Inverter: Power DC Total (Huawei)" in available_sensor_names:
-        source_sensor = "Inverter: Power DC Total (Huawei)"
-        _LOGGER.info("[Enpal] Using Huawei-specific DC power sensor: %s", source_sensor)
-    
-    # Priority 2: Try other manufacturer-specific sensors (SMA, Fronius, etc.)
-    # Look for pattern: "Inverter: Power DC Total (<Manufacturer>)"
-    if not source_sensor:
-        for name in available_sensor_names:
-            name_id = make_id(name)
-            # Match manufacturer-specific format but exclude Calculated
-            if (name_id.startswith("inverter_power_dc_total_") and 
-                name_id != "inverter_power_dc_total_calculated" and
-                name_id != "inverter_power_dc_total"):
-                source_sensor = name
-                _LOGGER.info("[Enpal] Found manufacturer-specific DC power sensor: %s", name)
-                break
-    
-    # Priority 3: Try generic "Inverter: Power DC Total"
-    if not source_sensor and "Inverter: Power DC Total" in available_sensor_names:
-        source_sensor = "Inverter: Power DC Total"
-        _LOGGER.info("[Enpal] Using generic DC power sensor: %s", source_sensor)
-    
-    # Priority 4: Last resort - use calculated sensor
-    if not source_sensor and "Inverter: Power DC Total Calculated" in available_sensor_names:
-        source_sensor = "Inverter: Power DC Total Calculated"
-        _LOGGER.warning("[Enpal] Using calculated DC power sensor (least accurate): %s", source_sensor)
-    
-    # Final fallback: If nothing found, use Huawei as default (will trigger warning)
-    if not source_sensor:
-        source_sensor = "Inverter: Power DC Total (Huawei)"
-        _LOGGER.warning(
-            "[Enpal] No DC power sensor found. Available power sensors: %s. Using fallback: %s",
-            ", ".join([make_id(n) for n in available_sensor_names if "power" in make_id(n).lower()]),
-            source_sensor
-        )
-    
-    entities.append(CumulativeEnergySensor(hass, coordinator, [source_sensor], interval))
+    # The DC power source is selected inside the entity and re-tried on every
+    # coordinator update: on firmware 8.51 the first fetch only carries the
+    # pre-rendered Site Data card, the inverter sensors arrive a few seconds
+    # later via WebSocket push (issue #177). Selecting the source once at
+    # setup would therefore always miss them.
+    entities.append(CumulativeEnergySensor(
+        hass, coordinator, ["Inverter: Power DC Total (Huawei)"], interval
+    ))
     entities.append(DailyResetFromEntitySensor(hass, "sensor.inverter_energy_produced_total_dc"))
 
     if entry.options.get("use_wallbox", False):
@@ -441,6 +406,7 @@ class CumulativeEnergySensor(SensorEntity, RestoreEntity):
         self._coordinator = coordinator
         self._source_candidates = [make_id(name) for name in sensor_names]
         self._active_source_uid = None  # Will be determined from available sensors
+        self._source_warning_logged = False
         self._fallback_interval_hours = interval_seconds / 3600
         self._last_update_time = None  # Track real elapsed time between updates
         self._state = self.hass.data[DOMAIN]["cumulative_energy_state"]
@@ -471,23 +437,46 @@ class CumulativeEnergySensor(SensorEntity, RestoreEntity):
             self._value = 0.0
         self._coordinator.async_add_listener(self._handle_coordinator_update)
 
+    def _select_source_uid(self, available_ids: set) -> str | None:
+        """Pick the best DC power sensor from the currently available ids.
+
+        Priority: explicit candidates (Huawei), then manufacturer-specific
+        sensors (SMA, FoxESS, ...), then the generic sensor, then the
+        calculated one as last resort.
+        """
+        for candidate in self._source_candidates:
+            if candidate in available_ids:
+                return candidate
+        for uid in sorted(available_ids):
+            if (uid.startswith("inverter_power_dc_total_")
+                    and uid != "inverter_power_dc_total_calculated"):
+                return uid
+        if "inverter_power_dc_total" in available_ids:
+            return "inverter_power_dc_total"
+        if "inverter_power_dc_total_calculated" in available_ids:
+            return "inverter_power_dc_total_calculated"
+        return None
+
     def _handle_coordinator_update(self):
         # If we haven't determined the active source yet, find the first available one
         if self._active_source_uid is None:
             available_sensors = {make_id(s["name"]) for s in self._coordinator.data}
-            for candidate in self._source_candidates:
-                if candidate in available_sensors:
-                    self._active_source_uid = candidate
-                    _LOGGER.info("[Enpal] Using DC power sensor: %s", candidate)
-                    break
-            
+            self._active_source_uid = self._select_source_uid(available_sensors)
+
             if self._active_source_uid is None:
-                _LOGGER.warning(
-                    "[Enpal] No suitable DC power sensor found. Tried: %s",
-                    ", ".join(self._source_candidates)
-                )
+                # On firmware 8.51 the inverter sensors only arrive via
+                # WebSocket push a few seconds after setup, so keep retrying
+                # on every update but log the warning only once (issue #177).
+                if not self._source_warning_logged:
+                    self._source_warning_logged = True
+                    _LOGGER.warning(
+                        "[Enpal] No suitable DC power sensor found. Tried: %s. "
+                        "Will keep looking on further updates",
+                        ", ".join(self._source_candidates)
+                    )
                 self.async_write_ha_state()
                 return
+            _LOGGER.info("[Enpal] Using DC power sensor: %s", self._active_source_uid)
         
         # Now process the update with the active source
         now = datetime.now()
