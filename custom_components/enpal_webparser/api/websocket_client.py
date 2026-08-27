@@ -716,7 +716,7 @@ class EnpalWebSocketClient(EnpalApiClient):
         parser (and entity ids) keep working. Returns the number of newly
         created sensors.
         """
-        from ..utils import make_id, expand_inverter_system_state
+        from ..utils import make_id, friendly_name, expand_inverter_system_state
         from ..const import SENSOR_KEY_GROUPS
 
         group = SENSOR_KEY_GROUPS.get("Inverter.System.State")
@@ -730,7 +730,23 @@ class EnpalWebSocketClient(EnpalApiClient):
         created = 0
         enabled = group not in self.excluded_groups
         prefix = f"{group}: "
-        for sensor in expand_inverter_system_state(group, text, row.get("timestamp")):
+        # The HTML parser keeps the base "System State" sensor alongside the
+        # split sensors (truncated to a valid state length). Mirror that here,
+        # otherwise sensor.inverter_system_state stays unavailable on firmware
+        # 8.51 where the value only arrives over the WebSocket (issue #178).
+        base_sensor = {
+            "name": friendly_name(group, "Inverter.System.State"),
+            "value": re.sub(r"\s+", " ", text).strip()[:240],
+            "unit": None,
+            "device_class": None,
+            "enabled": enabled,
+            "enpal_last_update": row.get("timestamp"),
+            "group": group,
+        }
+        sensors = [base_sensor] + expand_inverter_system_state(
+            group, text, row.get("timestamp")
+        )
+        for sensor in sensors:
             # The HTML parser creates the same sensors but without a "group"
             # field, so _set_baseline indexes them under the full name instead
             # of the label. Look up (and register) both ids to stay compatible
