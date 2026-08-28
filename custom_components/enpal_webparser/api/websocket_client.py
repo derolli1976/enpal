@@ -68,6 +68,23 @@ _BATCH_DUMP_LIMIT = 3
 _BATCH_DUMP_MIN_BYTES = 5000
 _BATCH_DUMP_MAX_CHARS = 4000
 
+
+def _is_system_state_value(value: Optional[str]) -> bool:
+    """Whether a RenderBatch value carries the inverter state bitfield.
+
+    Mirrors the value-based detection of the HTML parser: which dotted key
+    holds the blob depends on the inverter vendor (Inverter.System.State on
+    Huawei, Inverter.Running.State on Sungrow), so the key alone is not a
+    reliable trigger (issue #180).
+    """
+    from ..utils import INV_STATE_RE
+
+    if not isinstance(value, str) or "Bits" not in value:
+        return False
+    if len(value) > 200:
+        return True
+    return bool(INV_STATE_RE.search(re.sub(r"<[^>]+>", " ", value)))
+
 # Firmware 8.51 hides some rows (e.g. Energy.Battery.Charge.Level) behind
 # per-card "Show unsupported values" / "Show internal values" checkboxes.
 # Those are circuit state, so our own circuit must switch them on to receive
@@ -659,8 +676,10 @@ class EnpalWebSocketClient(EnpalApiClient):
             key = SENSOR_KEY_ALIASES.get(raw_key, raw_key)
             # Firmware 8.51 delivers the system-state bitfield as an HTML <ul>
             # blob (>800 chars); it is expanded into its own sensors instead of
-            # being patched as a plain value.
-            if key == "Inverter.System.State":
+            # being patched as a plain value. Detected by value, not by key:
+            # Sungrow ships the bitfield under Inverter.Running.State while
+            # Inverter.System.State is a short plain value there (issue #180).
+            if _is_system_state_value(value):
                 created += self._apply_system_state_row(row)
                 continue
             if not is_patchable_value(value):
@@ -708,20 +727,21 @@ class EnpalWebSocketClient(EnpalApiClient):
             _LOGGER.info("[Enpal WebSocket] Created %d sensor(s) from RenderBatch rows", created)
 
     def _apply_system_state_row(self, row: Dict) -> int:
-        """Expand an Inverter.System.State row into its split sensors.
+        """Expand an inverter-state bitfield row into its split sensors.
 
         On firmware 8.50 the HTML full scrape handled this via
         ``expand_inverter_system_state``; on 8.51 the value only arrives over
         the WebSocket, as HTML markup. Tags are stripped so the existing
-        parser (and entity ids) keep working. Returns the number of newly
-        created sensors.
+        parser (and entity ids) keep working. The carrying key varies by
+        vendor (Inverter.System.State on Huawei, Inverter.Running.State on
+        Sungrow). Returns the number of newly created sensors.
         """
         from ..utils import make_id, friendly_name, expand_inverter_system_state
-        from ..const import SENSOR_KEY_GROUPS
+        from ..const import SENSOR_KEY_GROUPS, SENSOR_KEY_ALIASES
 
-        group = SENSOR_KEY_GROUPS.get("Inverter.System.State")
-        if group is None:
-            return 0
+        raw_key = row["key"]
+        key = SENSOR_KEY_ALIASES.get(raw_key, raw_key)
+        group = SENSOR_KEY_GROUPS.get(key, "Uncategorized")
         value = row.get("value") or ""
         if "Bits" not in value:
             return 0
@@ -730,12 +750,12 @@ class EnpalWebSocketClient(EnpalApiClient):
         created = 0
         enabled = group not in self.excluded_groups
         prefix = f"{group}: "
-        # The HTML parser keeps the base "System State" sensor alongside the
-        # split sensors (truncated to a valid state length). Mirror that here,
-        # otherwise sensor.inverter_system_state stays unavailable on firmware
+        # The HTML parser keeps the base sensor alongside the split sensors
+        # (truncated to a valid state length). Mirror that here, otherwise
+        # e.g. sensor.inverter_system_state stays unavailable on firmware
         # 8.51 where the value only arrives over the WebSocket (issue #178).
         base_sensor = {
-            "name": friendly_name(group, "Inverter.System.State"),
+            "name": friendly_name(group, key),
             "value": re.sub(r"\s+", " ", text).strip()[:240],
             "unit": None,
             "device_class": None,
@@ -765,7 +785,7 @@ class EnpalWebSocketClient(EnpalApiClient):
                 target["enpal_last_update"] = sensor["enpal_last_update"]
             elif not indices:
                 sensor["group"] = group
-                sensor["raw_key"] = "Inverter.System.State"
+                sensor["raw_key"] = raw_key
                 sensor["enabled"] = enabled
                 idx = len(self._baseline)
                 self._baseline.append(sensor)

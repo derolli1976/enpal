@@ -36,6 +36,8 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 # --- Inverter System State Bit-Definitionen ---
+# Fallback labels (Huawei "State 1" register) for blobs that carry no per-bit
+# labels, e.g. the bitfield synthesized by the InfluxDB client.
 INV_BITS = [
     (0, "Standby"),
     (1, "Grid-connected"),
@@ -54,6 +56,32 @@ INV_STATE_RE = re.compile(
     r"(?:State\s*)?Decimal\s*[:=]\s*(\d+)\s*Bits\s*[:=]\s*([01]{2,})",
     re.IGNORECASE | re.DOTALL,
 )
+
+# Per-bit labels inside the blob: "Bit 3: Positive load power: ✓".
+INV_BIT_LABEL_RE = re.compile(r"Bit\s+(\d+)\s*:\s*(.+?)\s*:\s*[✓✗]")
+
+# The blob labels for these Huawei bits are longer than the entity labels used
+# since the first release; normalize them so existing entity ids keep working.
+_HISTORIC_BIT_LABELS = {
+    "grid connection with derating due to power rationing":
+        "Grid derating (power rationing)",
+    "grid connection with derating due to internal causes of the solar inverter":
+        "Grid derating (internal cause)",
+}
+
+
+def parse_inverter_state_bits(raw_text: str) -> List[Tuple[int, str]]:
+    """Extract the vendor-specific per-bit labels from a system-state blob.
+
+    Returns (bit index, label) pairs, normalized to the historic Huawei
+    labels where they differ, or an empty list if the blob carries none.
+    """
+    bits: List[Tuple[int, str]] = []
+    for m in INV_BIT_LABEL_RE.finditer(raw_text or ""):
+        label = m.group(2).strip()
+        label = _HISTORIC_BIT_LABELS.get(label.lower(), label)
+        bits.append((int(m.group(1)), label))
+    return bits
 
 
 def expand_inverter_system_state(group: str, raw_text: str, timestamp_iso: Optional[str]) -> List[Dict[str, Any]]:
@@ -80,6 +108,11 @@ def expand_inverter_system_state(group: str, raw_text: str, timestamp_iso: Optio
     dec = m.group(1)
     bitstr = m.group(2).strip()
 
+    # Vendor-specific bit labels from the blob itself (Huawei and Sungrow
+    # expose different registers); fall back to the Huawei set for blobs
+    # without labels.
+    inv_bits = parse_inverter_state_bits(raw_text) or INV_BITS
+
     # Decimals as separate sensor
     out.append({
         "name": friendly_name(group, "System state decimal"),
@@ -94,7 +127,7 @@ def expand_inverter_system_state(group: str, raw_text: str, timestamp_iso: Optio
     # Flags as summary sensor
     set_flags: List[str] = []
     # LSB right: idx 0 = right border
-    for idx, label in INV_BITS:
+    for idx, label in inv_bits:
         active = (idx < len(bitstr)) and (bitstr[-(idx + 1)] == "1")
         if active:
             set_flags.append(label)
@@ -110,7 +143,7 @@ def expand_inverter_system_state(group: str, raw_text: str, timestamp_iso: Optio
     })
 
     # Ech individual flag as separate sensor
-    for idx, label in INV_BITS:
+    for idx, label in inv_bits:
         active = (idx < len(bitstr)) and (bitstr[-(idx + 1)] == "1")
         out.append({
             "name": friendly_name(group, f"System state: {label}"),

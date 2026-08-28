@@ -20,7 +20,11 @@ Eine Home Assistant Custom Integration zur lokalen Überwachung von Enpal Solara
 
 ---
 
-## 🆕 Neu in Version 3.2.0b1 (Beta)
+## 🆕 Neu in Version 3.2.0b2 (Beta)
+
+Der Inverter-System-Status funktioniert jetzt auch auf **Sungrow-Anlagen**. Sungrow liefert das Status-Bitfeld unter einem anderen Datenpunkt als Huawei, deshalb blieben die Status-Sensoren dort "nicht verfügbar" (Issue #180). Die Erkennung hängt jetzt am Inhalt statt am Datenpunkt-Namen, und die einzelnen Status-Bits werden herstellerspezifisch beschriftet (z. B. `sensor.inverter_system_state_pv_power_generated`). Details in den [Release Notes 3.2.0b2](docs/RELEASE_NOTES_3.2.0b2.md).
+
+### Aus Version 3.2.0b1
 
 Neue Datenquelle **InfluxDB** (Experten-Option): Die Integration kann die Messwerte direkt aus der Datenbank der Enpal Box lesen, unabhängig von der Weboberfläche. Dafür wird ein Zugriffstoken benötigt, den Enpal auf Anfrage über den Chatbot in der Enpal App mitteilt. Details im Abschnitt [Datenquellen](#-datenquellen-websocket-html-oder-influxdb) und in den [Release Notes 3.2.0b1](docs/RELEASE_NOTES_3.2.0b1.md).
 
