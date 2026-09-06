@@ -631,6 +631,14 @@ ICON_MAP = {
     "inverter_system_state_shutdown": "mdi:power",
     "inverter_system_state_spot_check": "mdi:magnify",
 
+    # Inverter Running State bits (Sungrow)
+    "inverter_system_state_pv_power_generated": "mdi:solar-power",
+    "inverter_system_state_battery_charging": "mdi:battery-plus",
+    "inverter_system_state_battery_discharging": "mdi:battery-minus",
+    "inverter_system_state_positive_load_power": "mdi:home-lightning-bolt",
+    "inverter_system_state_feed_in_power": "mdi:transmission-tower-export",
+    "inverter_system_state_importing_power": "mdi:transmission-tower-import",
+
     # Heatpump
     "heatpump_domestichotwater_temperature": "mdi:water-thermometer",
     "heatpump_energy_consumption_total_lifetime": "mdi:lightning-bolt",

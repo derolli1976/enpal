@@ -103,6 +103,63 @@ async def validate_wallbox_api(hass) -> bool:
         return False
 
 
+def get_configure_step_schema(config: dict[str, Any]) -> vol.Schema:
+    """Schema for the initial-setup configure step.
+
+    The InfluxDB credential fields only appear after the expert data source
+    has been selected (the form re-renders with a validation error first).
+    """
+    schema: dict[Any, Any] = {
+        vol.Required("interval", default=cast(Any, config["interval"])): int,
+        vol.Required("timeout", default=cast(Any, config["timeout"])): vol.All(int, vol.Range(min=10, max=120)),
+        vol.Optional("groups", default=cast(Any, config["groups"])): cv.multi_select(DEFAULT_GROUPS),
+        vol.Optional("use_wallbox", default=cast(Any, config["use_wallbox"])): bool,
+        vol.Optional("data_source", default=cast(Any, config["data_source"])): vol.In({
+            "auto": "Auto-detect (recommended)",
+            "websocket": "WebSocket (real-time)",
+            "html": "HTML polling (legacy)",
+            "influxdb": "InfluxDB (expert, token required)",
+        }),
+    }
+    if config.get("data_source") == "influxdb" or config.get("influx_token"):
+        schema[vol.Optional(
+            "influx_token", default=cast(Any, config.get("influx_token", ""))
+        )] = str
+        schema[vol.Optional(
+            "influx_org", default=cast(Any, config.get("influx_org", "enpal"))
+        )] = str
+        schema[vol.Optional(
+            "influx_bucket", default=cast(Any, config.get("influx_bucket", "solar"))
+        )] = str
+    return vol.Schema(schema)
+
+
+async def validate_influx_settings(hass, url: str, user_input: dict[str, Any]) -> str | None:
+    """Validate the InfluxDB expert settings with a test connection.
+
+    Returns an error key for the options form, or None when the connection
+    and a test query succeed.
+    """
+    from .api import EnpalInfluxClient
+
+    token = (user_input.get("influx_token") or "").strip()
+    if not token:
+        return "influx_token_required"
+    base_url = url.replace("/deviceMessages", "")
+    client = EnpalInfluxClient(
+        base_url,
+        token=token,
+        org=(user_input.get("influx_org") or "enpal").strip(),
+        bucket=(user_input.get("influx_bucket") or "solar").strip(),
+    )
+    try:
+        if not await client.connect():
+            return "influx_unreachable"
+    finally:
+        await client.close()
+    return None
+
+
 async def detect_websocket_support(hass, base_url: str) -> bool:
     """Detect if the Enpal box supports WebSocket connections.
     
@@ -146,9 +203,12 @@ def get_default_config(options: dict[str, Any] | None = None) -> dict[str, Any]:
         "timeout": src.get("timeout", DEFAULT_TIMEOUT),
         "groups": [g for g in DEFAULT_GROUPS if g not in excluded],
         "use_wallbox": src.get("use_wallbox", DEFAULT_USE_WALLBOX),
-        "data_source": src.get("data_source", "auto"),  # auto, websocket, html
+        "data_source": src.get("data_source", "auto"),  # auto, websocket, html, influxdb
         "wallbox_mode_source": src.get("wallbox_mode_source", "auto"),
         "wallbox_status_source": src.get("wallbox_status_source", "auto"),
+        "influx_token": src.get("influx_token", ""),
+        "influx_org": src.get("influx_org", "enpal"),
+        "influx_bucket": src.get("influx_bucket", "solar"),
     }
 
 
@@ -262,9 +322,24 @@ def get_form_schema(config: dict[str, Any], wallbox_sources: dict[str, str] | No
         vol.Optional("data_source", default=cast(Any, config["data_source"])): vol.In({
             "auto": "Auto-detect (recommended)",
             "websocket": "WebSocket (real-time)",
-            "html": "HTML polling (legacy)"
+            "html": "HTML polling (legacy)",
+            "influxdb": "InfluxDB (expert, token required)",
         }),
     }
+
+    # InfluxDB credentials: only shown once the expert data source is selected
+    # (or already configured). Token and organisation are provided by Enpal on
+    # request; the bucket is "solar" on all known boxes.
+    if config.get("data_source") == "influxdb" or config.get("influx_token"):
+        schema[vol.Optional(
+            "influx_token", default=cast(Any, config.get("influx_token", ""))
+        )] = str
+        schema[vol.Optional(
+            "influx_org", default=cast(Any, config.get("influx_org", "enpal"))
+        )] = str
+        schema[vol.Optional(
+            "influx_bucket", default=cast(Any, config.get("influx_bucket", "solar"))
+        )] = str
 
     # Firmware 8.50+: let the user pick which raw Wallbox sensor provides the
     # charge mode / connection state. Only offered when wallbox is enabled and
@@ -311,6 +386,12 @@ async def process_user_input(hass, user_input: dict[str, Any]) -> tuple[dict[str
         if not await detect_websocket_support(hass, base_url):
             _LOGGER.warning("[Enpal] WebSocket selected but not available, falling back to HTML")
             data_source = "html"
+    elif data_source == "influxdb":
+        # Expert option: no fallback, validation errors are shown instead.
+        error = await validate_influx_settings(hass, url_checked, user_input)
+        if error:
+            errors["data_source"] = error
+            return None, errors
 
     # Validate wallbox addon if HTML mode + wallbox enabled
     if user_input.get("use_wallbox", False) and data_source == "html":
@@ -330,6 +411,9 @@ async def process_user_input(hass, user_input: dict[str, Any]) -> tuple[dict[str
         "data_source": data_source,
         "wallbox_mode_source": user_input.get("wallbox_mode_source", "auto"),
         "wallbox_status_source": user_input.get("wallbox_status_source", "auto"),
+        "influx_token": user_input.get("influx_token", ""),
+        "influx_org": user_input.get("influx_org", "enpal"),
+        "influx_bucket": user_input.get("influx_bucket", "solar"),
     }, {}
 
 
@@ -511,6 +595,9 @@ class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             "groups": DEFAULT_GROUPS,
             "use_wallbox": DEFAULT_USE_WALLBOX,
             "data_source": "auto",
+            "influx_token": "",
+            "influx_org": "enpal",
+            "influx_bucket": "solar",
         }
 
         # Detect firmware to warn the user before they enable WebSocket mode
@@ -535,6 +622,11 @@ class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 if not await detect_websocket_support(self.hass, base_url):
                     _LOGGER.warning("[Enpal] WebSocket selected but not available, falling back to HTML")
                     data_source = "html"
+            elif data_source == "influxdb":
+                # Expert option: no fallback, validation errors are shown instead.
+                error = await validate_influx_settings(self.hass, self._url, user_input)
+                if error:
+                    errors["data_source"] = error
 
             # Validate wallbox addon if HTML mode + wallbox enabled
             if user_input.get("use_wallbox", False) and data_source == "html":
@@ -561,23 +653,16 @@ class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                         ],
                         "use_wallbox": user_input.get("use_wallbox", False),
                         "data_source": data_source,
+                        "influx_token": user_input.get("influx_token", ""),
+                        "influx_org": user_input.get("influx_org", "enpal"),
+                        "influx_bucket": user_input.get("influx_bucket", "solar"),
                     },
                 )
             
             config.update(user_input)
             return self.async_show_form(
                 step_id="configure",
-                data_schema=vol.Schema({
-                    vol.Required("interval", default=config["interval"]): int,
-                    vol.Required("timeout", default=config["timeout"]): vol.All(int, vol.Range(min=10, max=120)),
-                    vol.Optional("groups", default=config["groups"]): cv.multi_select(DEFAULT_GROUPS),
-                    vol.Optional("use_wallbox", default=config["use_wallbox"]): bool,
-                    vol.Optional("data_source", default=config["data_source"]): vol.In({
-                        "auto": "Auto-detect (recommended)",
-                        "websocket": "WebSocket (real-time)",
-                        "html": "HTML polling (legacy)"
-                    }),
-                }),
+                data_schema=get_configure_step_schema(config),
                 errors=errors,
                 description_placeholders={
                     "url": self._url,
@@ -587,17 +672,7 @@ class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         
         return self.async_show_form(
             step_id="configure",
-            data_schema=vol.Schema({
-                vol.Required("interval", default=config["interval"]): int,
-                vol.Required("timeout", default=config["timeout"]): vol.All(int, vol.Range(min=10, max=120)),
-                vol.Optional("groups", default=config["groups"]): cv.multi_select(DEFAULT_GROUPS),
-                vol.Optional("use_wallbox", default=config["use_wallbox"]): bool,
-                vol.Optional("data_source", default=config["data_source"]): vol.In({
-                    "auto": "Auto-detect (recommended)",
-                    "websocket": "WebSocket (real-time)",
-                    "html": "HTML polling (legacy)"
-                }),
-            }),
+            data_schema=get_configure_step_schema(config),
             description_placeholders={
                 "url": self._url,
                 "firmware_warning": firmware_warning,

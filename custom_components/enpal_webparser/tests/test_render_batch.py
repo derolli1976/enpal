@@ -503,6 +503,67 @@ def test_system_state_row_respects_group_selection():
     assert decimal["enabled"] is False
 
 
+def test_sungrow_running_state_row_expands_into_split_sensors():
+    """Sungrow ships the bitfield under Inverter.Running.State (issue #180)."""
+    client = EnpalWebSocketClient("http://box.local", groups=list(DEFAULT_GROUPS))
+    client._set_baseline(_site_data_only_baseline())
+
+    client._apply_diff([{
+        "key": "Inverter.Running.State",
+        "value": (
+            "<ul><li>Decimal: 27</li><li>Bits: 011011</li>"
+            "<li>Bit 0: PV power generated: <span style='color:green;'>✓</span></li>"
+            "<li>Bit 1: Battery charging: <span style='color:green;'>✓</span></li>"
+            "<li>Bit 2: Battery discharging: <span style='color:red;'>✗</span></li>"
+            "<li>Bit 3: Positive load power: <span style='color:green;'>✓</span></li>"
+            "<li>Bit 4: Feed-in power: <span style='color:green;'>✓</span></li>"
+            "<li>Bit 5: Importing power: <span style='color:red;'>✗</span></li></ul>"
+        ),
+        "unit": None,
+        "timestamp": "16:40:20.20",
+    }])
+
+    by_id = {make_id(s["name"]): s for s in client._baseline}
+    # Base sensor keeps its own entity id and a tag-free truncated value.
+    base = by_id["inverter_running_state"]
+    assert base["value"].startswith("Decimal: 27")
+    assert "<" not in base["value"]
+    assert len(base["value"]) <= 240
+    assert base["group"] == "Inverter"
+    # Split sensors carry the vendor-specific bit labels from the blob.
+    assert by_id["inverter_system_state_decimal"]["value"] == "27"
+    assert by_id["inverter_system_state_pv_power_generated"]["value"] == "on"
+    assert by_id["inverter_system_state_battery_charging"]["value"] == "on"
+    assert by_id["inverter_system_state_battery_discharging"]["value"] == "off"
+    assert by_id["inverter_system_state_flags"]["value"] == (
+        "PV power generated, Battery charging, Positive load power, Feed-in power"
+    )
+    # No Huawei fallback labels when the blob carries its own.
+    assert "inverter_system_state_standby" not in by_id
+    for sensor in client._baseline:
+        assert len(str(sensor["value"])) <= 255
+
+
+def test_sungrow_plain_system_state_row_creates_plain_sensor():
+    """On Sungrow, Inverter.System.State is a short value like 'Running (64)'."""
+    client = EnpalWebSocketClient("http://box.local", groups=list(DEFAULT_GROUPS))
+    client._set_baseline(_site_data_only_baseline())
+
+    client._apply_diff([{
+        "key": "Inverter.System.State",
+        "value": "Running (64)",
+        "unit": None,
+        "timestamp": "16:40:20.22",
+    }])
+
+    by_id = {make_id(s["name"]): s for s in client._baseline}
+    base = by_id["inverter_system_state"]
+    assert base["value"] == "Running (64)"
+    assert base["group"] == "Inverter"
+    # No split sensors from the plain value.
+    assert "inverter_system_state_decimal" not in by_id
+
+
 # ---------------------------------------------------------------------------
 # Firmware 8.51: creating baseline sensors from RenderBatch rows
 # ---------------------------------------------------------------------------
