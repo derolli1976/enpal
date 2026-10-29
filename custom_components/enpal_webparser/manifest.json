@@ -1,6 +1,7 @@
 {
   "domain": "enpal_webparser",
   "name": "Enpal Solar",
+  "categories": ["energy.solar_batteries"],
   "codeowners": ["@derolli1976"],
   "config_flow": true,
   "dependencies": [],
@@ -8,5 +9,5 @@
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/derolli1976/enpal/issues",
   "requirements": ["beautifulsoup4", "psutil", "msgpack>=1.0.7"],
-  "version": "3.2.0"
+  "version": "3.2.9b1"
 }

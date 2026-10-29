@@ -18,14 +18,13 @@
 #
 
 import asyncio
-from functools import cached_property
 import logging
 
 from homeassistant.components.switch import SwitchEntity
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.event import async_track_state_change_event
 
 from .const import DOMAIN
+from .devices import GROUP_WALLBOX, device_info_for_group
 from .wallbox_api import WallboxApiClient
 
 _LOGGER = logging.getLogger(__name__)
@@ -57,6 +56,7 @@ class EnpalWallboxSwitch(SwitchEntity):
         self._api_client = api_client
         self._attr_name = "Wallbox Charging"
         self._attr_unique_id = "enpal_wallbox_charging_switch"
+        self._attr_device_info = device_info_for_group(GROUP_WALLBOX)
         self._is_on = False
         self._pending_state = None
 
@@ -65,16 +65,6 @@ class EnpalWallboxSwitch(SwitchEntity):
         if self._pending_state is not None:
             return self._pending_state
         return self._is_on if self._is_on is not None else False
-
-
-    @cached_property
-    def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={(DOMAIN, "enpal_device")},
-            name="Enpal Webgerät",
-            manufacturer="Enpal",
-            model="Webparser",
-        )
 
     async def async_added_to_hass(self):
         """Automatisch aufgerufen, wenn die Entität registriert wird."""

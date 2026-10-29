@@ -84,7 +84,21 @@ def test_sensor_device_info():
     assert device_info is not None
     assert device_info.get("identifiers") == {("enpal_webparser", "enpal_device")}
     assert device_info.get("manufacturer") == "Enpal"
-    assert device_info.get("model") == "Webparser"
+    # Explicit None clears the legacy "Webparser" model in the registry.
+    assert "model" in device_info and device_info["model"] is None
+
+
+def test_sensor_device_info_follows_group():
+    """Sensors of a product group are attached to that product's device."""
+    sensor_dict = {
+        "name": "Battery: State of Charge",
+        "value": "80",
+        "group": "Battery",
+    }
+    sensor = build_sensor_entity(sensor_dict, DummyCoordinator())
+    device_info = sensor.device_info
+    assert device_info.get("identifiers") == {("enpal_webparser", "enpal_device_battery")}
+    assert device_info.get("via_device") == ("enpal_webparser", "enpal_device")
 
 
 def test_native_value_falls_back_to_restored_value():

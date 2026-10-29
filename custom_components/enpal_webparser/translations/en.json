@@ -75,6 +75,13 @@
       "influx_unreachable": "The box's InfluxDB is not reachable or token/organisation/bucket are wrong. Check the values and that the box is powered on."
     }
   },
+  "device": {
+    "inverter": { "name": "Inverter" },
+    "battery": { "name": "Battery" },
+    "wallbox": { "name": "Wallbox" },
+    "heatpump": { "name": "Heat pump" },
+    "power_sensor": { "name": "Power sensor" }
+  },
   "issues": {
     "html_mode_unsupported_firmware": {
       "title": "HTML mode no longer works with firmware {firmware_version}",

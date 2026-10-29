@@ -18,7 +18,6 @@
 #
 
 from datetime import datetime, timedelta
-from functools import cached_property
 import logging
 
 from bs4 import BeautifulSoup
@@ -27,7 +26,6 @@ from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -40,6 +38,7 @@ from homeassistant.helpers.update_coordinator import (
     UpdateFailed,
 )
 
+from .devices import GROUP_INVERTER, GROUP_WALLBOX, device_info_for_group
 from .entity_factory import build_sensor_entity
 
 from .utils import (
@@ -222,7 +221,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     coordinator = DataUpdateCoordinator(
         hass,
         logger=_LOGGER,
-        name="Enpal Webparser",
+        name="Enpal Box",
         update_method=async_update_data,
         update_interval=timedelta(seconds=interval),
     )
@@ -411,6 +410,7 @@ class CumulativeEnergySensor(SensorEntity, RestoreEntity):
         self.hass = hass
         self._attr_name = str("Inverter: Energy produced total (DC)")
         self._attr_unique_id = str("cumulative_energy_produced_dc_kwh")
+        self._attr_device_info = device_info_for_group(GROUP_INVERTER)
         self._attr_device_class = SensorDeviceClass.ENERGY   
         self._attr_state_class = "total_increasing"
         self._attr_native_unit_of_measurement = "kWh"
@@ -522,20 +522,12 @@ class CumulativeEnergySensor(SensorEntity, RestoreEntity):
                 break
         self.async_write_ha_state()
 
-    @cached_property
-    def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={(DOMAIN, "enpal_device")},
-            name="Enpal Webgerät",
-            manufacturer="Enpal",
-            model="Webparser",
-        )
-
 class DailyResetFromEntitySensor(SensorEntity, RestoreEntity):  
     def __init__(self, hass: HomeAssistant, source_entity_id: str):
         self.hass = hass
         self._attr_name = str("Inverter: Energy produced today (DC)")
         self._attr_unique_id = str("daily_energy_produced_dc_kwh")
+        self._attr_device_info = device_info_for_group(GROUP_INVERTER)
         self._attr_device_class = SensorDeviceClass.ENERGY 
         self._attr_state_class = "total"
         self._attr_native_unit_of_measurement = "kWh"
@@ -596,15 +588,6 @@ class DailyResetFromEntitySensor(SensorEntity, RestoreEntity):
 
         self.async_schedule_update_ha_state()
 
-    @cached_property
-    def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={(DOMAIN, "enpal_device")},
-            name="Enpal Webgerät",
-            manufacturer="Enpal",
-            model="Webparser",
-        )
-
 
 class WallboxCoordinatorEntity(CoordinatorEntity, SensorEntity):
     def __init__(self, coordinator, name, unique_id, key):
@@ -612,17 +595,9 @@ class WallboxCoordinatorEntity(CoordinatorEntity, SensorEntity):
         self._attr_name = str(name)
         self._attr_unique_id = str(unique_id)
         self._key = key
+        self._attr_device_info = device_info_for_group(GROUP_WALLBOX)
         self._attr_icon = "mdi:ev-station"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
-
-    @cached_property
-    def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={(DOMAIN, "enpal_device")},
-            name="Enpal Webgerät",
-            manufacturer="Enpal",
-            model="Webparser",
-        )
 
     @property
     def native_value(self) -> StateType:
@@ -655,17 +630,9 @@ class WallboxNativeSensor(CoordinatorEntity, SensorEntity):
         self._attr_unique_id = str(unique_id)
         self._source_key = source_key
         self._lower = lower
+        self._attr_device_info = device_info_for_group(GROUP_WALLBOX)
         self._attr_icon = "mdi:ev-station"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
-
-    @cached_property
-    def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={(DOMAIN, "enpal_device")},
-            name="Enpal Webgerät",
-            manufacturer="Enpal",
-            model="Webparser",
-        )
 
     @property
     def native_value(self) -> StateType:
