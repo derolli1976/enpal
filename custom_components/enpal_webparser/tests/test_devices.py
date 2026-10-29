@@ -22,6 +22,7 @@ from custom_components.enpal_webparser.devices import (
     MAIN_DEVICE_ID,
     MAIN_DEVICE_NAME,
     SUB_DEVICE_GROUPS,
+    EnpalDeviceEntity,
     async_setup_devices,
     device_info_for_group,
 )
@@ -44,6 +45,43 @@ def test_product_groups_use_sub_device(group, key):
     assert info["via_device"] == (DOMAIN, MAIN_DEVICE_ID)
     # Sub-devices are named via translations, not a hard-coded name.
     assert "name" not in info
+
+
+def test_via_device_id_used_when_supported():
+    """HA 2026.8+: link sub-devices by registry id instead of identifier."""
+    with patch("custom_components.enpal_webparser.devices.SUPPORTS_VIA_DEVICE_ID", True):
+        info = device_info_for_group("Wallbox", "box-registry-id")
+    assert info["via_device_id"] == "box-registry-id"
+    assert "via_device" not in info
+
+
+def test_via_device_fallback_on_older_home_assistant():
+    """Before HA 2026.8 DeviceInfo has no via_device_id key."""
+    with patch("custom_components.enpal_webparser.devices.SUPPORTS_VIA_DEVICE_ID", False):
+        info = device_info_for_group("Wallbox", "box-registry-id")
+    assert info["via_device"] == (DOMAIN, MAIN_DEVICE_ID)
+    assert "via_device_id" not in info
+
+
+class _WallboxEntity(EnpalDeviceEntity):
+    _enpal_group = "Wallbox"
+
+
+def test_entity_mixin_uses_main_device_id_from_entry_data():
+    entity = _WallboxEntity()
+    entity.hass = MagicMock()
+    entity.hass.data = {DOMAIN: {"entry1": {"main_device_id": "box-registry-id"}}}
+    entity.platform = SimpleNamespace(config_entry=SimpleNamespace(entry_id="entry1"))
+    with patch("custom_components.enpal_webparser.devices.SUPPORTS_VIA_DEVICE_ID", True):
+        info = entity.device_info
+    assert info["identifiers"] == {(DOMAIN, f"{MAIN_DEVICE_ID}_wallbox")}
+    assert info["via_device_id"] == "box-registry-id"
+
+
+def test_entity_mixin_without_platform_falls_back():
+    """Before the entity is added there is no hass/platform yet."""
+    info = _WallboxEntity().device_info
+    assert info["via_device"] == (DOMAIN, MAIN_DEVICE_ID)
 
 
 def test_sub_device_translations_exist():
@@ -74,7 +112,7 @@ def _setup(title="Enpal Box", main_area="area_boiler"):
     with patch(
         "custom_components.enpal_webparser.devices.dr.async_get", return_value=registry
     ):
-        async_setup_devices(hass, entry)
+        assert async_setup_devices(hass, entry) == "main"
 
     listener = hass.bus.async_listen.call_args[0][1]
     return hass, entry, registry, devices, listener

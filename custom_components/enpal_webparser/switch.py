@@ -24,7 +24,7 @@ from homeassistant.components.switch import SwitchEntity
 from homeassistant.helpers.event import async_track_state_change_event
 
 from .const import DOMAIN
-from .devices import GROUP_WALLBOX, device_info_for_group
+from .devices import GROUP_WALLBOX, EnpalDeviceEntity
 from .wallbox_api import WallboxApiClient
 
 _LOGGER = logging.getLogger(__name__)
@@ -44,7 +44,9 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     async_add_entities([EnpalWallboxSwitch(hass, api_client)], True)
 
 
-class EnpalWallboxSwitch(SwitchEntity):
+class EnpalWallboxSwitch(EnpalDeviceEntity, SwitchEntity):
+    _enpal_group = GROUP_WALLBOX
+
     def __init__(self, hass, api_client: WallboxApiClient):
         """Initialize the wallbox switch.
         
@@ -56,7 +58,6 @@ class EnpalWallboxSwitch(SwitchEntity):
         self._api_client = api_client
         self._attr_name = "Wallbox Charging"
         self._attr_unique_id = "enpal_wallbox_charging_switch"
-        self._attr_device_info = device_info_for_group(GROUP_WALLBOX)
         self._is_on = False
         self._pending_state = None
 

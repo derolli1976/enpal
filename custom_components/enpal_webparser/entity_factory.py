@@ -21,7 +21,7 @@ from homeassistant.components.sensor import SensorEntity, SensorDeviceClass
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, CoordinatorEntity
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .devices import device_info_for_group
+from .devices import EnpalDeviceEntity
 from .utils import make_id
 from .const import ICON_MAP, STATE_CLASS_OVERRIDES
 
@@ -51,7 +51,7 @@ def _display_name(name: str, group: str) -> str:
     return f"{group}: {label}" if label else name
 
 
-class EnpalBaseSensor(CoordinatorEntity, SensorEntity, RestoreEntity):
+class EnpalBaseSensor(EnpalDeviceEntity, CoordinatorEntity, SensorEntity, RestoreEntity):
     """Generic Enpal sensor entity using the update coordinator."""
 
     def __init__(self, sensor: dict, coordinator: DataUpdateCoordinator):
@@ -60,7 +60,7 @@ class EnpalBaseSensor(CoordinatorEntity, SensorEntity, RestoreEntity):
         self._sensor = sensor
         raw_name = sensor.get("name", "unknown")
         group = sensor.get("group", "")
-        self._attr_device_info = device_info_for_group(group)
+        self._enpal_group = group
         self._attr_name = _display_name(raw_name, group) if group else raw_name
         self._attr_unique_id = make_id(raw_name)  # ID stays based on original name
         self._attr_native_unit_of_measurement = sensor.get("unit")

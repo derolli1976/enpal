@@ -63,7 +63,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if needs_update:
         hass.config_entries.async_update_entry(entry, options=new_options)
 
-    async_setup_devices(hass, entry)
+    main_device_id = async_setup_devices(hass, entry)
 
     use_wallbox = entry.options.get("use_wallbox", False)
     
@@ -74,6 +74,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry_data = {
         "config": entry.data,
         "platforms": platforms,
+        "main_device_id": main_device_id,
     }
 
     # Create shared wallbox client for all wallbox platforms

@@ -38,7 +38,7 @@ from homeassistant.helpers.update_coordinator import (
     UpdateFailed,
 )
 
-from .devices import GROUP_INVERTER, GROUP_WALLBOX, device_info_for_group
+from .devices import GROUP_INVERTER, GROUP_WALLBOX, EnpalDeviceEntity
 from .entity_factory import build_sensor_entity
 
 from .utils import (
@@ -405,12 +405,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     entry.async_on_unload(coordinator.async_add_listener(_async_add_new_sensors))
 
 
-class CumulativeEnergySensor(SensorEntity, RestoreEntity):  
+class CumulativeEnergySensor(EnpalDeviceEntity, SensorEntity, RestoreEntity):
+    _enpal_group = GROUP_INVERTER
+
     def __init__(self, hass: HomeAssistant, coordinator: DataUpdateCoordinator, sensor_names: list[str], interval_seconds: int):
         self.hass = hass
         self._attr_name = str("Inverter: Energy produced total (DC)")
         self._attr_unique_id = str("cumulative_energy_produced_dc_kwh")
-        self._attr_device_info = device_info_for_group(GROUP_INVERTER)
         self._attr_device_class = SensorDeviceClass.ENERGY   
         self._attr_state_class = "total_increasing"
         self._attr_native_unit_of_measurement = "kWh"
@@ -522,12 +523,13 @@ class CumulativeEnergySensor(SensorEntity, RestoreEntity):
                 break
         self.async_write_ha_state()
 
-class DailyResetFromEntitySensor(SensorEntity, RestoreEntity):  
+class DailyResetFromEntitySensor(EnpalDeviceEntity, SensorEntity, RestoreEntity):
+    _enpal_group = GROUP_INVERTER
+
     def __init__(self, hass: HomeAssistant, source_entity_id: str):
         self.hass = hass
         self._attr_name = str("Inverter: Energy produced today (DC)")
         self._attr_unique_id = str("daily_energy_produced_dc_kwh")
-        self._attr_device_info = device_info_for_group(GROUP_INVERTER)
         self._attr_device_class = SensorDeviceClass.ENERGY 
         self._attr_state_class = "total"
         self._attr_native_unit_of_measurement = "kWh"
@@ -589,13 +591,14 @@ class DailyResetFromEntitySensor(SensorEntity, RestoreEntity):
         self.async_schedule_update_ha_state()
 
 
-class WallboxCoordinatorEntity(CoordinatorEntity, SensorEntity):
+class WallboxCoordinatorEntity(EnpalDeviceEntity, CoordinatorEntity, SensorEntity):
+    _enpal_group = GROUP_WALLBOX
+
     def __init__(self, coordinator, name, unique_id, key):
         super().__init__(coordinator)
         self._attr_name = str(name)
         self._attr_unique_id = str(unique_id)
         self._key = key
-        self._attr_device_info = device_info_for_group(GROUP_WALLBOX)
         self._attr_icon = "mdi:ev-station"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
 
@@ -614,7 +617,7 @@ class WallboxStatusSensor(WallboxCoordinatorEntity):
         super().__init__(coordinator, "Wallbox Status", "wallbox_status", "status")
 
 
-class WallboxNativeSensor(CoordinatorEntity, SensorEntity):
+class WallboxNativeSensor(EnpalDeviceEntity, CoordinatorEntity, SensorEntity):
     """Wallbox sensor fed from the main /deviceMessages coordinator.
 
     Firmware 8.50+ exposes the wallbox charge mode and connection state on the
@@ -624,13 +627,14 @@ class WallboxNativeSensor(CoordinatorEntity, SensorEntity):
     keep working unchanged.
     """
 
+    _enpal_group = GROUP_WALLBOX
+
     def __init__(self, coordinator, name, unique_id, source_key, lower=False):
         super().__init__(coordinator)
         self._attr_name = str(name)
         self._attr_unique_id = str(unique_id)
         self._source_key = source_key
         self._lower = lower
-        self._attr_device_info = device_info_for_group(GROUP_WALLBOX)
         self._attr_icon = "mdi:ev-station"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
 

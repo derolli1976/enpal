@@ -24,6 +24,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import Event, HomeAssistant, callback
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers.device_registry import DeviceInfo
+from homeassistant.helpers.entity import Entity
 
 from .const import DOMAIN
 
@@ -67,16 +68,57 @@ def main_device_info() -> DeviceInfo:
     )
 
 
-def device_info_for_group(group: str | None) -> DeviceInfo:
-    """Return the device info for entities of the given sensor group."""
+# Home Assistant 2026.8 deprecated DeviceInfo["via_device"] (identifier tuple)
+# in favor of "via_device_id" (device registry id); "via_device" is removed in
+# 2027.8. Older versions reject the unknown "via_device_id" key, so pick the
+# key the running version supports.
+SUPPORTS_VIA_DEVICE_ID = "via_device_id" in (
+    DeviceInfo.__optional_keys__ | DeviceInfo.__required_keys__
+)
+
+
+def device_info_for_group(
+    group: str | None, main_device_id: str | None = None
+) -> DeviceInfo:
+    """Return the device info for entities of the given sensor group.
+
+    *main_device_id* is the device registry id of the Enpal Box. It is used
+    for ``via_device_id`` on Home Assistant versions that support it.
+    """
     key = SUB_DEVICE_GROUPS.get(group or "")
     if key is None:
         return main_device_info()
-    return DeviceInfo(
+    info = DeviceInfo(
         identifiers={(DOMAIN, f"{MAIN_DEVICE_ID}_{key}")},
         translation_key=key,
-        via_device=(DOMAIN, MAIN_DEVICE_ID),
     )
+    if SUPPORTS_VIA_DEVICE_ID and main_device_id:
+        info["via_device_id"] = main_device_id  # type: ignore[typeddict-unknown-key]
+    else:
+        info["via_device"] = (DOMAIN, MAIN_DEVICE_ID)
+    return info
+
+
+class EnpalDeviceEntity(Entity):
+    """Entity attached to the Enpal Box or one of its sub-devices.
+
+    Subclasses set ``_enpal_group``. The device info is built when Home
+    Assistant registers the entity, because ``via_device_id`` needs the
+    registry id of the Enpal Box, which is only known after setup.
+    """
+
+    _enpal_group: str | None = None
+
+    @property
+    def device_info(self) -> DeviceInfo:
+        main_device_id = None
+        hass = getattr(self, "hass", None)
+        platform = getattr(self, "platform", None)
+        config_entry = getattr(platform, "config_entry", None)
+        if hass is not None and config_entry is not None:
+            entry_data = hass.data.get(DOMAIN, {}).get(config_entry.entry_id, {})
+            main_device_id = entry_data.get("main_device_id")
+        return device_info_for_group(self._enpal_group, main_device_id)
 
 
 def _sub_device_identifiers() -> set[tuple[str, str]]:
@@ -84,8 +126,10 @@ def _sub_device_identifiers() -> set[tuple[str, str]]:
 
 
 @callback
-def async_setup_devices(hass: HomeAssistant, entry: ConfigEntry) -> None:
+def async_setup_devices(hass: HomeAssistant, entry: ConfigEntry) -> str:
     """Register the main device and let new sub-devices inherit its area.
+
+    Returns the device registry id of the Enpal Box.
 
     The main device is registered before the platforms are set up so that the
     ``via_device`` reference of the sub-devices always resolves.
@@ -126,3 +170,4 @@ def async_setup_devices(hass: HomeAssistant, entry: ConfigEntry) -> None:
     entry.async_on_unload(
         hass.bus.async_listen(dr.EVENT_DEVICE_REGISTRY_UPDATED, _async_inherit_area)
     )
+    return main_device.id
