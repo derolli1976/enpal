@@ -48,6 +48,7 @@ Die Integration ist jetzt der Kategorie **Energie › Solar & Batterien** zugeor
 
 - **Neue Mindestversion: Home Assistant 2024.3.0** (benötigt für übersetzte Gerätenamen)
 - Keine Änderungen an Entity-IDs
+- Bereit für Home Assistant 2026.8+: Die Geräte werden über `via_device_id` verknüpft, die Deprecation-Warnung zu `via_device` im Log entfällt
 - WebSocket-, HTML- und InfluxDB-Modus bleiben unverändert
 - Enthält alle Änderungen aus 3.2.0
 
