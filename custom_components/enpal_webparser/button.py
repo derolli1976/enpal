@@ -17,14 +17,13 @@
 # See README.md for setup and usage instructions.
 #
 
-from functools import cached_property
 import logging
 
 from homeassistant.components.button import ButtonEntity
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity import EntityCategory
 
 from .const import DOMAIN
+from .devices import GROUP_WALLBOX, EnpalDeviceEntity
 from .wallbox_api import WallboxApiClient
 
 
@@ -66,7 +65,9 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     _LOGGER.info("[Enpal] Wallbox buttons successfully added")
 
 
-class EnpalWallboxButton(ButtonEntity):
+class EnpalWallboxButton(EnpalDeviceEntity, ButtonEntity):
+    _enpal_group = GROUP_WALLBOX
+
     def __init__(self, hass, api_client: WallboxApiClient, name: str, action: str, unique_id: str):
         """Initialize the wallbox button.
         
@@ -84,15 +85,6 @@ class EnpalWallboxButton(ButtonEntity):
         self._attr_unique_id = f"enpal_wallbox_button_{unique_id}"
         self._attr_entity_category = EntityCategory.CONFIG
         _LOGGER.debug("[Enpal] Created button entity: %s (action: %s)", self._attr_name, self._action)
-
-    @cached_property
-    def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={(DOMAIN, "enpal_device")},
-            name="Enpal Webgerät",
-            manufacturer="Enpal",
-            model="Webparser",
-        )
 
     async def async_press(self):
         """Handle button press."""

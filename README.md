@@ -20,7 +20,17 @@ Eine Home Assistant Custom Integration zur lokalen Überwachung von Enpal Solara
 
 ---
 
-## 🆕 Neu in Version 3.2.0
+## 🆕 Neu in Version 3.3.0
+
+Die Integration legt jetzt **eigene Geräte** für Wechselrichter, Batterie, Wallbox, Wärmepumpe und Stromsensor an (Issue #192). Sie hängen als "Verbunden über Enpal Box" am Hauptgerät und lassen sich jeweils einem eigenen Bereich zuordnen, z. B. die Wallbox der Garage. Details im Abschnitt [Geräte und Bereiche](#geräte-und-bereiche).
+
+Das Hauptgerät heißt jetzt **"Enpal Box"** (bisher "Enpal Webgerät"), und die Integration ist der Kategorie **Energie › Solar & Batterien** zugeordnet. Neue Mindestversion ist **Home Assistant 2024.3.0**.
+
+> ⚠️ **Entity-IDs bleiben unverändert.** Automationen, Skripte und Dashboard-Karten, die als Ziel das **Gerät** "Enpal Box" verwenden, erreichen die verschobenen Entitäten aber nicht mehr. Bitte auf das neue Gerät (z. B. "Wallbox") oder direkt auf die Entität umstellen.
+
+Details in den [Release Notes 3.3.0](docs/RELEASE_NOTES_3.3.0.md).
+
+### Aus Version 3.2.0
 
 Neue Datenquelle **InfluxDB** (Experten-Option): Die Integration kann die Messwerte direkt aus der Datenbank der Enpal Box lesen, unabhängig von der Weboberfläche. Dafür wird ein Zugriffstoken benötigt, den Enpal auf Anfrage über den Chatbot in der Enpal App mitteilt. Details im Abschnitt [Datenquellen](#-datenquellen-websocket-html-oder-influxdb).
 
@@ -71,7 +81,8 @@ Details in den [Release Notes 3.0.0](docs/RELEASE_NOTES_3.0.0.md).
 ## ✨ Features
 
 - **Lokale Kommunikation:** Keine Cloud-Anbindung erforderlich, alle Daten werden lokal im Netzwerk abgerufen.
-- **Zwei Datenquellen:** WebSocket-Echtzeitmodus (Firmware 8.50 und 8.51) oder HTML-Polling (Legacy), mit automatischer Erkennung der besten Methode.
+- **Drei Datenquellen:** WebSocket-Echtzeitmodus (Firmware 8.50 und 8.51), HTML-Polling (Legacy) mit automatischer Erkennung der besten Methode, oder InfluxDB als Experten-Option.
+- **Eigene Geräte pro Komponente:** Wechselrichter, Batterie, Wallbox, Wärmepumpe und Stromsensor sind eigene Geräte und lassen sich unterschiedlichen Bereichen zuordnen.
 - **Umfangreiche Sensoren:** Über 100 Datenpunkte für PV-Anlage, Batterie, Inverter, Wallbox und Wärmepumpe.
 - **Flexible Sensor-Gruppen:** Wählbare Kategorien (Battery, Inverter, Wallbox, Heatpump, ControlBox und weitere). Abgewählte Gruppen erzeugen deaktivierte Entities, neue Gruppen sind automatisch aktiv.
 - **Auto-Discovery:** Automatische Erkennung der Enpal Box im lokalen Netzwerk.
@@ -84,6 +95,21 @@ Details in den [Release Notes 3.0.0](docs/RELEASE_NOTES_3.0.0.md).
 ---
 
 ## 📊 Unterstützte Geräte & Sensoren
+
+### Geräte und Bereiche
+
+Die Integration legt in Home Assistant mehrere Geräte an. Die Komponenten hängen als "Verbunden über Enpal Box" am Hauptgerät:
+
+| Gerät | Sensor-Gruppen |
+|---|---|
+| **Enpal Box** | Site Data, IoTEdgeDevice, ControlBox |
+| **Wechselrichter** | Inverter (inkl. der berechneten DC-Energiezähler) |
+| **Batterie** | Battery |
+| **Wallbox** | Wallbox (inkl. Schalter, Buttons und Modus-Auswahl) |
+| **Wärmepumpe** | Heatpump |
+| **Stromsensor** | PowerSensor |
+
+Geräte entstehen nur für Komponenten, für die die Box Daten liefert. Ein neues Gerät übernimmt beim ersten Anlegen einmalig den Bereich der Enpal Box. Danach kannst du jedem Gerät unter **Einstellungen** → **Geräte & Dienste** → **Geräte** einen eigenen Bereich zuweisen.
 
 ### Solaranlage & Inverter
 - **Leistung**: DC-Strings, AC-Phasen, Gesamtleistung
@@ -108,7 +134,7 @@ Details in den [Release Notes 3.0.0](docs/RELEASE_NOTES_3.0.0.md).
 - **Energie**: Verbrauch (kWh), aktuelle Leistung (kW)
 - **Status**: Betriebsmodus
 
-### System & IoT Edge Device
+### Enpal Box (System & IoT Edge Device)
 - **System**: CPU-Last, Speichernutzung
 - **Netzwerk**: LTE-Qualität, Datenverbrauch, Verbindungstyp
 - **Diagnose**: Firmware-Version, Systemzustand
@@ -132,7 +158,7 @@ Die Integration funktioniert **nur**, wenn die Enpal Box eine lokale Weboberflä
 **Hinweis**: Ältere Enpal Boxen (1. Generation) stellen diese Weboberfläche nicht immer bereit und werden aktuell **nicht unterstützt**.
 
 ### Technische Anforderungen
-- Home Assistant Core 2024.1.0 oder höher
+- Home Assistant Core 2024.3.0 oder höher
 - Enpal Box im selben Netzwerk wie Home Assistant
 - DHCP-aktivierter Router (Enpal Box bezieht IP per DHCP)
 - Für den WebSocket-Modus und die native Wallbox-Steuerung: Enpal-Firmware **Solar Rel. 8.50** oder höher
@@ -244,7 +270,7 @@ Der Setup-Assistent führt durch folgende Schritte:
 - Die Verbindung wird automatisch getestet
 
 #### Schritt 3: Sensoren und Datenquelle konfigurieren
-- **Datenquelle**: Auto-detect, WebSocket oder HTML-Polling (siehe [Datenquellen](#-datenquellen-websocket-oder-html))
+- **Datenquelle**: Auto-detect, WebSocket, HTML-Polling oder InfluxDB (siehe [Datenquellen](#-datenquellen-websocket-html-oder-influxdb))
 - **Aktualisierungsintervall**: Empfohlen 60 Sekunden (Minimum 10 Sekunden). Im WebSocket-Modus steuert dieses Intervall den Vollabgleich im Hintergrund.
 - **Sensor-Gruppen**: Auswahl der gewünschten Kategorien
   - `Battery` - Batterie-Sensoren
@@ -254,6 +280,7 @@ Der Setup-Assistent führt durch folgende Schritte:
   - `Site Data` - Standort- und Verbrauchsdaten
   - `IoTEdgeDevice` - System-Sensoren
   - `PowerSensor` - Stromsensor-Daten
+  - `ControlBox` - EEBUS- und Smart-Meter-Gateway-Werte (neuere Anlagen)
 - **Wallbox-Steuerung**: Bei Bedarf aktivieren (siehe [Wallbox-Steuerung](#-wallbox-steuerung-optional))
 
 ### Sensor-Gruppen nachträglich anpassen

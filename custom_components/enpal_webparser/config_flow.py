@@ -640,7 +640,7 @@ class EnpalConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 self._abort_if_unique_id_configured()
                 
                 return self.async_create_entry(
-                    title="Enpal Webparser",
+                    title="Enpal Box",
                     data={"use_options_flow": True},
                     options={
                         "url": self._url,

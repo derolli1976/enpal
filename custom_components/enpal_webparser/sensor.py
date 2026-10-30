@@ -18,7 +18,6 @@
 #
 
 from datetime import datetime, timedelta
-from functools import cached_property
 import logging
 
 from bs4 import BeautifulSoup
@@ -27,7 +26,6 @@ from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -40,6 +38,7 @@ from homeassistant.helpers.update_coordinator import (
     UpdateFailed,
 )
 
+from .devices import GROUP_INVERTER, GROUP_WALLBOX, EnpalDeviceEntity
 from .entity_factory import build_sensor_entity
 
 from .utils import (
@@ -222,7 +221,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     coordinator = DataUpdateCoordinator(
         hass,
         logger=_LOGGER,
-        name="Enpal Webparser",
+        name="Enpal Box",
         update_method=async_update_data,
         update_interval=timedelta(seconds=interval),
     )
@@ -406,7 +405,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     entry.async_on_unload(coordinator.async_add_listener(_async_add_new_sensors))
 
 
-class CumulativeEnergySensor(SensorEntity, RestoreEntity):  
+class CumulativeEnergySensor(EnpalDeviceEntity, SensorEntity, RestoreEntity):
+    _enpal_group = GROUP_INVERTER
+
     def __init__(self, hass: HomeAssistant, coordinator: DataUpdateCoordinator, sensor_names: list[str], interval_seconds: int):
         self.hass = hass
         self._attr_name = str("Inverter: Energy produced total (DC)")
@@ -522,16 +523,9 @@ class CumulativeEnergySensor(SensorEntity, RestoreEntity):
                 break
         self.async_write_ha_state()
 
-    @cached_property
-    def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={(DOMAIN, "enpal_device")},
-            name="Enpal Webgerät",
-            manufacturer="Enpal",
-            model="Webparser",
-        )
+class DailyResetFromEntitySensor(EnpalDeviceEntity, SensorEntity, RestoreEntity):
+    _enpal_group = GROUP_INVERTER
 
-class DailyResetFromEntitySensor(SensorEntity, RestoreEntity):  
     def __init__(self, hass: HomeAssistant, source_entity_id: str):
         self.hass = hass
         self._attr_name = str("Inverter: Energy produced today (DC)")
@@ -596,17 +590,10 @@ class DailyResetFromEntitySensor(SensorEntity, RestoreEntity):
 
         self.async_schedule_update_ha_state()
 
-    @cached_property
-    def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={(DOMAIN, "enpal_device")},
-            name="Enpal Webgerät",
-            manufacturer="Enpal",
-            model="Webparser",
-        )
 
+class WallboxCoordinatorEntity(EnpalDeviceEntity, CoordinatorEntity, SensorEntity):
+    _enpal_group = GROUP_WALLBOX
 
-class WallboxCoordinatorEntity(CoordinatorEntity, SensorEntity):
     def __init__(self, coordinator, name, unique_id, key):
         super().__init__(coordinator)
         self._attr_name = str(name)
@@ -614,15 +601,6 @@ class WallboxCoordinatorEntity(CoordinatorEntity, SensorEntity):
         self._key = key
         self._attr_icon = "mdi:ev-station"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
-
-    @cached_property
-    def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={(DOMAIN, "enpal_device")},
-            name="Enpal Webgerät",
-            manufacturer="Enpal",
-            model="Webparser",
-        )
 
     @property
     def native_value(self) -> StateType:
@@ -639,7 +617,7 @@ class WallboxStatusSensor(WallboxCoordinatorEntity):
         super().__init__(coordinator, "Wallbox Status", "wallbox_status", "status")
 
 
-class WallboxNativeSensor(CoordinatorEntity, SensorEntity):
+class WallboxNativeSensor(EnpalDeviceEntity, CoordinatorEntity, SensorEntity):
     """Wallbox sensor fed from the main /deviceMessages coordinator.
 
     Firmware 8.50+ exposes the wallbox charge mode and connection state on the
@@ -649,6 +627,8 @@ class WallboxNativeSensor(CoordinatorEntity, SensorEntity):
     keep working unchanged.
     """
 
+    _enpal_group = GROUP_WALLBOX
+
     def __init__(self, coordinator, name, unique_id, source_key, lower=False):
         super().__init__(coordinator)
         self._attr_name = str(name)
@@ -657,15 +637,6 @@ class WallboxNativeSensor(CoordinatorEntity, SensorEntity):
         self._lower = lower
         self._attr_icon = "mdi:ev-station"
         self._attr_entity_category = EntityCategory.DIAGNOSTIC
-
-    @cached_property
-    def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={(DOMAIN, "enpal_device")},
-            name="Enpal Webgerät",
-            manufacturer="Enpal",
-            model="Webparser",
-        )
 
     @property
     def native_value(self) -> StateType:

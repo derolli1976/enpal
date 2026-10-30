@@ -19,13 +19,12 @@
 
 import asyncio
 import logging
-from functools import cached_property
 
 from homeassistant.components.select import SelectEntity
-from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.event import async_track_state_change_event
 
 from .const import DOMAIN, WALLBOX_LEGACY_MODE_MAP, WALLBOX_MODE_MAP
+from .devices import GROUP_WALLBOX, EnpalDeviceEntity
 from .wallbox_api import WallboxApiClient
 
 _LOGGER = logging.getLogger(__name__)
@@ -48,7 +47,9 @@ async def async_setup_entry(hass, config_entry, async_add_entities):
     async_add_entities([EnpalWallboxModeSelect(hass, api_client)], True)
 
 
-class EnpalWallboxModeSelect(SelectEntity):
+class EnpalWallboxModeSelect(EnpalDeviceEntity, SelectEntity):
+    _enpal_group = GROUP_WALLBOX
+
     def __init__(self, hass, api_client: WallboxApiClient):
         """Initialize the wallbox mode selector.
         
@@ -82,15 +83,6 @@ class EnpalWallboxModeSelect(SelectEntity):
     @property
     def current_option(self) -> str | None:
        return self._pending_change or self._current_option or "Nicht verfügbar"
-
-    @cached_property
-    def device_info(self) -> DeviceInfo:
-        return DeviceInfo(
-            identifiers={(DOMAIN, "enpal_device")},
-            name="Enpal Webgerät",
-            manufacturer="Enpal",
-            model="Webparser",
-        )
 
     async def async_update(self):
         mode_entity = self._hass.states.get("sensor.wallbox_lademodus")
