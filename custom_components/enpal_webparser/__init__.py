@@ -26,6 +26,7 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
 from .const import DOMAIN
+from .devices import async_setup_devices
 from .wallbox_api import WallboxApiClient
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
@@ -62,6 +63,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if needs_update:
         hass.config_entries.async_update_entry(entry, options=new_options)
 
+    main_device_id = async_setup_devices(hass, entry)
+
     use_wallbox = entry.options.get("use_wallbox", False)
     
     platforms = ["sensor"]
@@ -71,6 +74,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry_data = {
         "config": entry.data,
         "platforms": platforms,
+        "main_device_id": main_device_id,
     }
 
     # Create shared wallbox client for all wallbox platforms

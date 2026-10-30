@@ -17,13 +17,11 @@
 # See README.md for setup and usage instructions.
 #
 
-from functools import cached_property
-
 from homeassistant.components.sensor import SensorEntity, SensorDeviceClass
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, CoordinatorEntity
-from homeassistant.helpers.entity import DeviceInfo
 from homeassistant.helpers.restore_state import RestoreEntity
 
+from .devices import EnpalDeviceEntity
 from .utils import make_id
 from .const import ICON_MAP, STATE_CLASS_OVERRIDES
 
@@ -53,7 +51,7 @@ def _display_name(name: str, group: str) -> str:
     return f"{group}: {label}" if label else name
 
 
-class EnpalBaseSensor(CoordinatorEntity, SensorEntity, RestoreEntity):
+class EnpalBaseSensor(EnpalDeviceEntity, CoordinatorEntity, SensorEntity, RestoreEntity):
     """Generic Enpal sensor entity using the update coordinator."""
 
     def __init__(self, sensor: dict, coordinator: DataUpdateCoordinator):
@@ -62,6 +60,7 @@ class EnpalBaseSensor(CoordinatorEntity, SensorEntity, RestoreEntity):
         self._sensor = sensor
         raw_name = sensor.get("name", "unknown")
         group = sensor.get("group", "")
+        self._enpal_group = group
         self._attr_name = _display_name(raw_name, group) if group else raw_name
         self._attr_unique_id = make_id(raw_name)  # ID stays based on original name
         self._attr_native_unit_of_measurement = sensor.get("unit")
@@ -110,15 +109,6 @@ class EnpalBaseSensor(CoordinatorEntity, SensorEntity, RestoreEntity):
     def extra_state_attributes(self):
         return {
             "enpal_last_update": self._sensor.get("enpal_last_update")
-        }
-
-    @cached_property
-    def device_info(self) -> DeviceInfo:
-        return {
-            "identifiers": {("enpal_webparser", "enpal_device")},
-            "name": "Enpal Webgerät",
-            "manufacturer": "Enpal",
-            "model": "Webparser",
         }
 
     def _handle_coordinator_update(self):

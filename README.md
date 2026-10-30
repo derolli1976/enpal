@@ -132,7 +132,7 @@ Die Integration funktioniert **nur**, wenn die Enpal Box eine lokale Weboberflä
 **Hinweis**: Ältere Enpal Boxen (1. Generation) stellen diese Weboberfläche nicht immer bereit und werden aktuell **nicht unterstützt**.
 
 ### Technische Anforderungen
-- Home Assistant Core 2024.1.0 oder höher
+- Home Assistant Core 2024.3.0 oder höher
 - Enpal Box im selben Netzwerk wie Home Assistant
 - DHCP-aktivierter Router (Enpal Box bezieht IP per DHCP)
 - Für den WebSocket-Modus und die native Wallbox-Steuerung: Enpal-Firmware **Solar Rel. 8.50** oder höher
