@@ -1,4 +1,4 @@
-# 3.2.9 - Eigene Geräte für Wechselrichter, Batterie & Co. (Issue #192)
+# 3.3.0 - Eigene Geräte für Wechselrichter, Batterie & Co. (Issue #192)
 
 Dieses Release teilt die Integration in mehrere Geräte auf, benennt das Hauptgerät in "Enpal Box" um und ordnet die Integration der neuen Home-Assistant-Kategorie "Energie" zu.
 

@@ -20,7 +20,7 @@ Eine Home Assistant Custom Integration zur lokalen Überwachung von Enpal Solara
 
 ---
 
-## 🆕 Neu in Version 3.2.9
+## 🆕 Neu in Version 3.3.0
 
 Die Integration legt jetzt **eigene Geräte** für Wechselrichter, Batterie, Wallbox, Wärmepumpe und Stromsensor an (Issue #192). Sie hängen als "Verbunden über Enpal Box" am Hauptgerät und lassen sich jeweils einem eigenen Bereich zuordnen, z. B. die Wallbox der Garage. Details im Abschnitt [Geräte und Bereiche](#geräte-und-bereiche).
 
@@ -28,7 +28,7 @@ Das Hauptgerät heißt jetzt **"Enpal Box"** (bisher "Enpal Webgerät"), und die
 
 > ⚠️ **Entity-IDs bleiben unverändert.** Automationen, Skripte und Dashboard-Karten, die als Ziel das **Gerät** "Enpal Box" verwenden, erreichen die verschobenen Entitäten aber nicht mehr. Bitte auf das neue Gerät (z. B. "Wallbox") oder direkt auf die Entität umstellen.
 
-Details in den [Release Notes 3.2.9](docs/RELEASE_NOTES_3.2.9.md).
+Details in den [Release Notes 3.3.0](docs/RELEASE_NOTES_3.3.0.md).
 
 ### Aus Version 3.2.0
 
