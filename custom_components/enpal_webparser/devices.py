@@ -155,7 +155,12 @@ def async_setup_devices(hass: HomeAssistant, entry: ConfigEntry) -> str:
         if event.data["action"] != "create":
             return
         device = device_registry.async_get(event.data["device_id"])
-        if device is None or device.area_id or not device.identifiers & sub_identifiers:
+        if (
+            device is None
+            or device.area_id
+            or device.via_device_id != main_device.id
+            or not device.identifiers & sub_identifiers
+        ):
             return
         parent = device_registry.async_get(main_device.id)
         if parent is None or parent.area_id is None:
