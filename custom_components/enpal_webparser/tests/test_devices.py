@@ -144,23 +144,32 @@ def test_custom_entry_title_is_kept():
 def test_new_sub_device_inherits_box_area():
     _, _, registry, devices, listener = _setup()
     devices["inv"] = SimpleNamespace(
-        id="inv", area_id=None, identifiers={(DOMAIN, f"{MAIN_DEVICE_ID}_inverter")}
+        id="inv",
+        area_id=None,
+        via_device_id="main",
+        identifiers={(DOMAIN, f"{MAIN_DEVICE_ID}_inverter")},
     )
     listener(_event("create", "inv"))
     registry.async_update_device.assert_called_once_with("inv", area_id="area_boiler")
 
 
 @pytest.mark.parametrize(
-    "action,area_id,identifier,main_area",
+    "action,area_id,via_device_id,identifier,main_area",
     [
-        ("update", None, f"{MAIN_DEVICE_ID}_inverter", "area_boiler"),  # not a new device
-        ("create", "garage", f"{MAIN_DEVICE_ID}_wallbox", "area_boiler"),  # already has an area
-        ("create", None, "some_other_device", "area_boiler"),  # not one of ours
-        ("create", None, f"{MAIN_DEVICE_ID}_battery", None),  # box has no area
+        ("update", None, "main", f"{MAIN_DEVICE_ID}_inverter", "area_boiler"),  # not a new device
+        ("create", "garage", "main", f"{MAIN_DEVICE_ID}_wallbox", "area_boiler"),  # already has an area
+        ("create", None, "other", f"{MAIN_DEVICE_ID}_wallbox", "area_boiler"),  # not behind the box
+        ("create", None, "main", "some_other_device", "area_boiler"),  # not one of ours
+        ("create", None, "main", f"{MAIN_DEVICE_ID}_battery", None),  # box has no area
     ],
 )
-def test_area_not_touched(action, area_id, identifier, main_area):
+def test_area_not_touched(action, area_id, via_device_id, identifier, main_area):
     _, _, registry, devices, listener = _setup(main_area=main_area)
-    devices["dev"] = SimpleNamespace(id="dev", area_id=area_id, identifiers={(DOMAIN, identifier)})
+    devices["dev"] = SimpleNamespace(
+        id="dev",
+        area_id=area_id,
+        via_device_id=via_device_id,
+        identifiers={(DOMAIN, identifier)},
+    )
     listener(_event(action, "dev"))
     registry.async_update_device.assert_not_called()
