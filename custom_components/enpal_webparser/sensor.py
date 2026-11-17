@@ -147,8 +147,8 @@ def _manage_wallbox_status_issue(hass, entry, data, status_source, data_source=N
         ir.async_delete_issue(hass, DOMAIN, issue_id)
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
-    _LOGGER.info("[Enpal] sensor.py async_setup_entry started")
+async def async_prepare_coordinator(hass: HomeAssistant, entry: ConfigEntry):
+    _LOGGER.info("[Enpal] Preparing sensor coordinator")
 
     url = entry.options.get("url", DEFAULT_URL)
     interval = entry.options.get("interval", DEFAULT_INTERVAL)
@@ -185,6 +185,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
         _LOGGER.info("[Enpal] Using HTML client")
         api_client = EnpalHtmlClient(base_url, groups=groups, excluded_groups=excluded_groups)
 
+    hass.data[DOMAIN][entry.entry_id]["api_client"] = api_client
     last_successful_data = []
 
     async def async_update_data():
@@ -267,8 +268,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     })
 
     hass.data[DOMAIN]["coordinator"] = coordinator
+    hass.data[DOMAIN][entry.entry_id]["coordinator"] = coordinator
 
     await coordinator.async_config_entry_first_refresh()
+    return coordinator
+
+
+async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback):
+    # Prepared/validated by __init__ before any platform is registered.
+    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    interval = entry.options.get("interval", DEFAULT_INTERVAL)
+    data_source = entry.options.get("data_source", "html")
     _LOGGER.info("[Enpal] Verfügbare Sensoren nach HTML-Parsing:")
     for sensor in coordinator.data:
         _LOGGER.info("[Enpal]   Name: %s -> UID: %s", sensor["name"], make_id(sensor["name"]))
@@ -368,6 +378,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
                     update_interval=timedelta(seconds=interval),
                 )
 
+                entry_data["wallbox_coordinator"] = wallbox_coordinator
                 hass.async_create_task(wallbox_coordinator.async_refresh())
 
                 entities.extend([
@@ -448,7 +459,9 @@ class CumulativeEnergySensor(EnpalDeviceEntity, SensorEntity, RestoreEntity):
                 self._value = 0.0
         else:
             self._value = 0.0
-        self._coordinator.async_add_listener(self._handle_coordinator_update)
+        self.async_on_remove(
+            self._coordinator.async_add_listener(self._handle_coordinator_update)
+        )
 
     def _select_source_uid(self, available_ids: set) -> str | None:
         """Pick the best DC power sensor from the currently available ids.

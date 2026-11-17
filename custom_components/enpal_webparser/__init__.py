@@ -17,11 +17,11 @@
 # See README.md for setup and usage instructions.
 #
 
+import asyncio
 import logging
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
@@ -114,11 +114,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _LOGGER.debug("[Enpal] Entry options: %s", entry.options)
     _LOGGER.info("[Enpal] Setting up platforms for entry: %s", platforms)
 
+    # Validate the first fetch before HA registers any platform.
+    try:
+        from .sensor import async_prepare_coordinator
+        await async_prepare_coordinator(hass, entry)
+    except (Exception, asyncio.CancelledError):
+        await _async_close_entry_clients(hass, entry)
+        raise
+
     try:
         await hass.config_entries.async_forward_entry_setups(entry, platforms)
-    except Exception as e:
-        _LOGGER.exception("[Enpal] Failed to set up entry platforms: %s", e)
-        raise ConfigEntryNotReady(f"Error setting up entry: {e}")
+    except (Exception, asyncio.CancelledError):
+        # A failed/cancelled forward can leave successful platforms registered.
+        try:
+            await hass.config_entries.async_unload_platforms(entry, platforms)
+        finally:
+            await _async_close_entry_clients(hass, entry)
+        raise
 
     # Reload integration when options change (e.g. wallbox enabled/disabled)
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
@@ -133,38 +145,40 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
     await hass.config_entries.async_reload(entry.entry_id)
 
 
+async def _async_close_entry_clients(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Stop this entry's polling and sockets, including partially started entries."""
+    domain_data = hass.data.get(DOMAIN, {})
+    runtime = domain_data.get(entry.entry_id, {})
+    for key in ("coordinator", "wallbox_coordinator"):
+        coordinator = runtime.get(key)
+        if coordinator is not None:
+            try:
+                await coordinator.async_shutdown()
+            except Exception as err:
+                _LOGGER.warning("[Enpal] Error stopping %s: %s", key, err)
+    for key in ("api_client", "wallbox_client"):
+        client = runtime.get(key)
+        if client is not None:
+            try:
+                if key == "api_client":
+                    client.set_data_callback(None)
+                await client.close()
+            except Exception as err:
+                _LOGGER.warning("[Enpal] Error closing %s: %s", key, err)
+    if domain_data.get("coordinator") is runtime.get("coordinator"):
+        domain_data.pop("coordinator", None)
+    domain_data.pop(entry.entry_id, None)
+
+
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _LOGGER.info("[Enpal] async_unload_entry called for entry_id: %s", entry.entry_id)
-
-    entry_data = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
-
-    # Close wallbox client if exists
-    wallbox_client = entry_data.get("wallbox_client")
-    if wallbox_client:
-        try:
-            await wallbox_client.close()
-            _LOGGER.info("[Enpal] Wallbox client connection closed")
-        except Exception as e:
-            _LOGGER.warning("[Enpal] Error closing wallbox client: %s", e)
-
-    # Close API client if exists
-    coordinator = hass.data.get(DOMAIN, {}).get("coordinator")
-    if coordinator and hasattr(coordinator, 'api_client'):
-        try:
-            await coordinator.api_client.close()
-            _LOGGER.info("[Enpal] API client connection closed")
-        except Exception as e:
-            _LOGGER.warning("[Enpal] Error closing API client: %s", e)
-
-    platforms = entry_data.get("platforms", [])
-    _LOGGER.debug("[Enpal] Unloading platforms: %s", platforms)
-
-    unloaded = await hass.config_entries.async_unload_platforms(entry, platforms)
-
+    runtime = hass.data.get(DOMAIN, {}).get(entry.entry_id, {})
+    unloaded = await hass.config_entries.async_unload_platforms(
+        entry, runtime.get("platforms", [])
+    )
     if unloaded:
-        hass.data[DOMAIN].pop(entry.entry_id, None)
-        _LOGGER.info("[Enpal] Entry %s unloaded and data cleaned up", entry.entry_id)
+        await _async_close_entry_clients(hass, entry)
+        _LOGGER.info("[Enpal] Entry %s unloaded and clients closed", entry.entry_id)
     else:
         _LOGGER.warning("[Enpal] Failed to unload entry %s", entry.entry_id)
-
     return unloaded
